@@ -27,6 +27,33 @@ drift apart within one release, and the document becomes useless exactly when it
 | `revocation.status_of()` | RFC 5280 | `[ ]` | `tests/test_obligations.py::status_of` |
 | `result.validate()` | RFC 5280 sec. 6 | `[ ]` | `tests/test_obligations.py::validate` |
 | `store.remember()` | design | `[ ]` | `tests/test_obligations.py::remember` |
+| `cab.member()` | MS-CAB (vendor format, not an RFC) | `[ ]` | `tests/test_obligations.py::cab_member` |
+| `ctl.root_program()` | MS-CTL (vendor format, not an RFC) | `[ ]` | `tests/test_obligations.py::ctl_root_program` |
+| `ctl.signed_by_microsoft()` | MS-CTL Authenticode | `[ ]` | `tests/test_obligations.py::ctl_signed_by_microsoft` |
+
+### Why the CTL rows belong here and not in `trustatlas`
+
+`trustatlas` collects the published trust programs of several vendors and joins them by hash. For
+Mozilla and curl that needs no parsing at all — `certdata.txt` is text, `cacert.pem` is PEM — and its
+rule is that it interprets nothing. Microsoft publishes its program as a CAB containing one member,
+`authroot.stl`, whose records are trust blobs in a vendor binary format; the only published form
+reachable from a Linux container is served over **plain HTTP**, so the signature inside the CTL is the
+sole integrity protection it has. Decoding it is protocol logic with a silent failure mode — a wrong
+record boundary yields a plausible list of thumbprints, which is the exact shape of error that makes a
+trust map wrong rather than merely incomplete. A second, laxer parser in the collector directory is
+the failure this file's honesty rule exists to prevent, so the obligation lives here.
+
+Pinned bytes the implementation will be tested against, from `trustatlas`'s sweep of 2026-11-07
+(`tools/collect_ctl.py`; the container re-fetched and reproduced both hashes):
+
+- `authrootstl.cab` — 80,353 octets, `sha256 c0aa761fb7d8d1e4449a8990…`, `application/vnd.ms-cab-compressed`
+- `disallowedcertstl.cab` — 5,652 octets, `sha256 1f2719b100fcc59601f0dbb2…`, the blocklist
+
+`cab.member()` is the first slice and is independently testable: a CAB's CFHEADER, CFFOLDER and CFFILE
+records name its member and its uncompressed size, and the folder's compression field says whether the
+member must be inflated before anything downstream can read it. `ctl.root_program()` depends on that
+answer, and `ctl.signed_by_microsoft()` is what turns "bytes as delivered over HTTP" into a claim about
+the program rather than about the network path.
 
 ## 2. Milestones
 
@@ -36,6 +63,9 @@ drift apart within one release, and the document becomes useless exactly when it
 - M4 policy mapping, constraints and anyPolicy
 - M5 revocation interface plus CRL and OCSP backed implementations and cross-checks against openssl verify
 - M6 publication: 0.1.0 with the conformance trace against NIST and vendor path test suites
+- M7 vendor program containers: CAB member extraction, then the CTL record and Authenticode rows above,
+  accepted by the pinned `authrootstl.cab` and `disallowedcertstl.cab` fixtures. `trustatlas` cannot say
+  what the Windows program trusts until this lands; today it can only pin the bytes it was given.
 
 Every milestone is accepted by its rows above flipping to `[ok]` with a named test, not by
 the code existing. Coverage in `pyproject.toml` ratchets in the same commit.
