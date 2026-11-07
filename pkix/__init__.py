@@ -9,7 +9,7 @@ dead since 2022-03-18.
 from __future__ import annotations
 
 from . import anchors, apps, chain, cli, names, policy, result, revocation, store, validity
-from .anchors import load_anchor
+from .anchors import Subtree, TrustAnchor, load_anchor
 from .chain import candidates
 from .names import constraint_holds
 from .policy import resolve
@@ -21,6 +21,8 @@ from .validity import check_signature, check_validity
 __version__ = "0.1.0"
 
 __all__ = [
+    "Subtree",
+    "TrustAnchor",
     "__version__",
     "anchors",
     "apps",

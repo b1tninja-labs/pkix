@@ -18,7 +18,7 @@ drift apart within one release, and the document becomes useless exactly when it
 
 | Obligation | Spec | Status | Where | Milestone |
 |---|---|---|---|---|
-| `anchors.load_anchor()` | RFC 5280 sec. 6.1 | `[ ]` | `tests/test_obligations.py::load_anchor` | M1 |
+| `anchors.load_anchor()` | RFC 5280 sec. 6.1 | `[ok]` | `tests/test_obligations.py::test_a_trust_anchor_carries_the_name_and_key_that_sec_611_requires` | M1 |
 | `chain.candidates()` | RFC 5280 sec. 6.1 | `[ ]` | `tests/test_obligations.py::candidates` | M1 |
 | `validity.check_signature()` | RFC 5280 | `[ ]` | `tests/test_obligations.py::check_signature` | M2 |
 | `validity.check_validity()` | RFC 5280 | `[ ]` | `tests/test_obligations.py::check_validity` | M2 |
