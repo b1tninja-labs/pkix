@@ -55,6 +55,41 @@ member must be inflated before anything downstream can read it. `ctl.root_progra
 answer, and `ctl.signed_by_microsoft()` is what turns "bytes as delivered over HTTP" into a claim about
 the program rather than about the network path.
 
+### M7 is blocked on a document, and the block is recorded so it is not guessed around
+
+Milestone M7 was not implemented on 2026-11-07 because the normative text could not be reached, and
+every field of a CAB or a CTL would otherwise have come from a model's recollection. That is the exact
+failure this project's rules exist to prevent, and it has form in this repository's neighbour: a tile
+parser written against an assumed TranscriptItem prefix returned `0x00` where `0x06` was expected, and
+a trust count compared against `CKT_NSS_TRUSTED_CONNECT_PEER`, a constant that does not exist. Both
+looked like clean results.
+
+What was tried, all on 2026-11-07, so the next attempt starts here rather than re-running the dead ends:
+
+| Source attempted | Result |
+|---|---|
+| `https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-cab/` | **HTTP 404** |
+| `https://winprotocoldoc.blob.core.windows.net/productionwindowsarchives/MS-CAB.pdf` | **HTTP 409** |
+| the same blob for `MS-CTL.pdf`, `MS-WINCAB.pdf` | **HTTP 409** |
+| web search for the CFHEADER/CFFOLDER pages | CAPTCHA, no results |
+| Wikipedia's cabinet article | **no byte-level field tables at all**, and flagged as containing original research |
+
+Two negative observations from poking the pinned CABs directly, recorded as *where it hurt*, not as
+format knowledge: the CFHEADER and CFFOLDER records at the offsets tried parsed consistently with the
+member name and sizes visible in the raw bytes, and **iteration of CFFILE records failed twice** on the
+variable-length name field. That is the field whose exact terminator and padding rule must come from the
+document, because a one-byte error there produces a file list that looks entirely plausible. No field
+layout, offset, or padding rule is asserted anywhere in this file.
+
+**Exit rule for M7, therefore:** it is implemented against a retrieved copy of the specification, with
+the document's title and revision recorded in the commit that lands the code. A row may not move from
+`[ ]` on the strength of a parser that agrees with itself; it moves when the pinned
+`authrootstl.cab` and `disallowedcertstl.cab` fixtures parse into entries a named test asserts on, and
+when `signed_by_microsoft()` has checked the signature — without which the whole exercise describes an
+HTTP response rather than the Windows program.
+
+
+
 ## 2. Milestones
 
 - M1 anchors and chain discovery with a fixture set of real chains
