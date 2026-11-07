@@ -17,7 +17,7 @@ something from Tier 1 before it can produce behaviour.
 ## Depends on
 
 - **asn1core** - RFC 5280 section 6 validates paths over certificates and CRLs, and RFC 5280
-  section 4.1.3.2 checks the CA signature over the DER encoding of the TBSCertificate, so
+  section 4.1.1.3 checks the CA signature over the DER encoding of the TBSCertificate, so
   validation cannot be written above a codec that re-encodes what it parsed. **Status: exists as
   code.** It has source files and a test suite of its own, and its own README states its release
   status. That it exists does not say it provides what a row here needs: which capability a row
@@ -34,7 +34,7 @@ is promised before asn1core has one of its own.
 - At most two projects in the portfolio carry real effort at once. A third is not started, and
   no obligation is taken here, while those two are open.
 - No new shell is created while any Tier 1 project still has an unimplemented obligation. The
-  READMEs of the 28 generated shells are already the maintenance liability, and the failure mode
+  READMEs of the 27 generated shells are already the maintenance liability, and the failure mode
   of this portfolio is prose outrunning code rather than under-building.
 - A project freezes to Tier 4 when its first release finds no external user, and a shell is
   retired publicly when a competitor ships what it promised rather than left to rot - the

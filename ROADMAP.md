@@ -140,14 +140,41 @@ the code existing. Coverage in `pyproject.toml` ratchets in the same commit.
 
 | Non-goal | Status | Revisit when |
 |---|---|---|
-| a certificate parser: accept DER or a cryptography object and refuse anything else | `[no]` | a named document requires it |
-| crypto primitives of any kind | `[no]` | a named document requires it |
+| a certificate parser of its own: pkix takes DER and refuses anything else, while the codec and the certificate structures belong to `asn1core` | `[no]` | a named document requires pkix to own a codec |
+| any private-key operation inside `pkix/`, signing included: where a test needs a certificate signed, the signature comes from `cryptography`, which stays a dev dependency | `[no]` | a named document requires pkix to issue a certificate |
 | ACME, CMP or any issuance protocol: enrollkit asks pkix whether the result is acceptable | `[no]` | a named document requires it |
 | the CA/Browser Forum baseline requirements, which are a policy profile built on top, not this algorithm | `[no]` | a named document requires it |
 
+**One row left this table on 2026-11-07 and it is recorded here rather than deleted.** "crypto
+primitives of any kind" was listed above, with "a named document requires it" as the condition to
+revisit. That condition is not met and no one is pretending it is: no document requires pkix to
+write its own arithmetic, because RFC 5280 is indifferent to how a signature is checked. The work
+became the M2 obligation `validity.check_signature()` by a maintainer decision to carry no runtime
+dependency, on the reasoning in [docs/strategy.md](docs/strategy.md) — verification has no secret
+input, digests and modular exponentiation are standard library, and a verifier's honest test corpus
+is signatures that other implementations produced. The sentence that previously justified the
+non-goal ("the one thing this project must not write itself") is corrected in `README.md` in the
+same commit, because leaving it standing would make the two documents disagree about the project.
+
 ## 5. Open questions
 
-- none recorded yet
+- **A version 1 certificate carries no basic constraints extension at all**, and RFC 5280 §4.2.1.9
+  phrases its prohibition for the case where the extension "is not present in a *version 3*
+  certificate". Read closely, that sentence does not reach a v1 issuer, so the text does not say
+  whether a v1 CA certificate may serve as a path member. pkix's answer is refusal (fail closed)
+  until a reachable source says otherwise; the alternative — treating silence as permission — lets a
+  v1 document into a path on a reading nobody verified.
+- **Whether a verifier must reject a public key that is not on the curve, or not in the prime-order
+  subgroup, is not a quoted MUST here.** RFC 5480 §4 raises it in lower case and attributes the
+  choices to SP 800-56A, and SEC1 §2.3.3, X9.62 and FIPS 186-3 are not reachable from this
+  environment. The implementation will validate the point and say in the row that the decision is
+  pkix's, not the specification's.
+- **RSA-PSS salt length when the parameters do not pin it.** RFC 8017 §9.1.2 treats `sLen` as a
+  supplied option and RFC 4055 §3.3 only orders the signature and key salt lengths, so accepting
+  `emLen - hLen - 2` is undetermined by anything reachable. It will be an explicit option or a
+  refusal, not a silent acceptance.
+- **MS-CAB and MS-CTL remain unreachable** (M7). The dead ends are tabulated above so the next
+  attempt starts past them.
 
 ## 6. Publication checklist
 

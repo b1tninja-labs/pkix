@@ -67,8 +67,8 @@ document, which is the honest grain size for a plan. See [docs/rfc-map.md](docs/
 
 ## What it does not do
 
-- a certificate parser: accept DER or a cryptography object and refuse anything else
-- crypto primitives of any kind
+- a certificate parser of its own: parsing belongs to `asn1core`, which keeps the bytes it parsed; pkix accepts DER and refuses anything else
+- signing anything: pkix verifies certificates and CRLs, holds no private key, and has no operation that produces a signature
 - ACME, CMP or any issuance protocol: enrollkit asks pkix whether the result is acceptable
 - the CA/Browser Forum baseline requirements, which are a policy profile built on top, not this algorithm
 
@@ -76,7 +76,17 @@ document, which is the honest grain size for a plan. See [docs/rfc-map.md](docs/
 
 ## Why this project has a runtime dependency
 
-Signature verification is the one thing this project must not write itself. A path validator that re-implements RSA or ECDSA in Python turns a well studied algorithm problem into a timing side channel project, so primitives come from cryptography, which vendors audited OpenSSL.
+Right now, and only for as long as the table below says so: one module imports `cryptography` — `pkix/anchors.py`, which uses it to parse a certificate and to check a signature. Neither role is permanent, and neither is where this project's value is.
+
+| Role `cryptography` plays today | Where | Leaves when | Why it leaves |
+|---|---|---|---|
+| parses certificates into objects | `pkix/anchors.py` | the M1 model row | RFC 5280 §4.1.1.3 binds the signature to the DER encoding of the tbsCertificate as it arrived; a parser that hands back its own re-encoding cannot show those bytes. `asn1core` keeps every field as a slice of the document it read |
+| compares two distinguished names | `pkix/anchors.py`, and `pkix/chain.py` as soon as discovery lands | the M1 model row | §6.1.3(a)(4) links a path by name equality, and §7.1 defines that equality through the RFC 4518 preparation and `caseIgnoreMatch`. Delegating it to a borrowed `__eq__` outsources the most security-relevant comparison in path validation |
+| the verification equations and paddings | not yet written | the M2 row `validity.check_signature()` | pkix verifies and never signs, so every input is public: there is no secret exponent or nonce in the code path to leak. Digests come from `hashlib` and modular exponentiation from `pow()`, both standard library |
+
+The earlier version of this section argued that re-implementing RSA or ECDSA would turn the project into "a timing side channel project". That argument is about private-key work — blinding, and nonces that leak a key when they repeat — and it does not reach verification, which is all pkix does. What verification genuinely risks is accepting a signature that should be rejected, and being verification-only buys the test data for that cheaply: every certificate in the recorded corpus was signed by a different implementation, so the corpus is known-answer data for acceptance and mutated copies of it are known-answer data for refusal. `docs/strategy.md` carries the full reasoning, including the parts of the record (SEC1, X9.62, FIPS 186-3) that this environment cannot reach and that therefore become stated project decisions rather than quoted MUSTs.
+
+The end state is no runtime dependency at all, with `cryptography` staying in the dev group as a differential oracle — a second implementation to disagree with, not a data model to conform to. `pyproject.toml` declares it as a runtime dependency until the commit that removes the last import, because metadata that describes a project which does not exist yet is the same lie in a different file.
 
 Declared as a floor with no ceiling: the application that installs this library resolves the final set, and a ceiling inside a library guarantees a conflict the first time something else needs a newer line.
 ## Install
