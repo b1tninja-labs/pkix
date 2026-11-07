@@ -8,10 +8,12 @@ name: roadmap
 # is even reachable from another personal repository is something to learn here rather than assume
 # eighteen times over.
 
+# Gated on pull requests, not on pushes to main. Not because main is trusted, but because this job
+# cannot pass until the forge is reachable by it, and a red badge on main that everyone has learned to
+# scroll past is worse than a gate that fires where a human is already looking. See the checkout step.
+
 on:
   pull_request:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -26,6 +28,29 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - uses: b1tninja/sdk-forge@main
+      # The forge is private, and `uses:` cannot reach a private repository: action resolution carries
+      # no credential of its own, so the runner answers "repository not found" however the token is
+      # configured (observed on run 42335324082). Checking it out with a read-only PAT is the
+      # private-compatible path. Making sdk-forge public is the zero-secret alternative, and this step
+      # then collapses back to `uses: b1tninja/sdk-forge@main`.
+      - uses: actions/checkout@v4
         with:
-          project: pkix
+          repository: b1tninja/sdk-forge
+          path: .forge
+          token: ${{ secrets.FORGE_PAT }}
+      - run: python -m pip install --quiet -r .forge/requirements-dev.txt
+      - name: Every row must name a real callable
+        run: python -m pytest -q tests/test_roadmap_rows.py
+      - name: The matrix and the issues derived from it must agree
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eu
+          project=$(basename "$GITHUB_WORKSPACE")
+          # --root expects <root>/<project>/ROADMAP.md. Build that shape instead of guessing at the
+          # runner's directory layout, which is a convention and not a contract.
+          root=$(mktemp -d)
+          mkdir -p "$root/$project"
+          cp ROADMAP.md "$root/$project/"
+          python .forge/sync_roadmap.py --check --project "$project" --root "$root" \
+            --org "$GITHUB_REPOSITORY_OWNER"
