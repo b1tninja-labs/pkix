@@ -158,6 +158,16 @@ same commit, because leaving it standing would make the two documents disagree a
 
 ## 5. Open questions
 
+- **`anchors` is the last module importing `cryptography`, and the order of the remaining two
+  changes is undecided.** M1 closed on 2026-11-07 (`anchors.load_anchor()` and
+  `chain.candidates()`, both pinned, the latter discovering a real four-deep served chain), and
+  `chain.py` already works entirely on `asn1core` types. Re-basing `anchors` onto the same model
+  removes the parsing role in one move, but `TrustAnchor.verify()` needs *something* to check a
+  signature with: either a thin bridge that hands `subject_public_key_info` and `tbs_certificate` to
+  `cryptography`'s primitives until M2 lands, or M2 first with no bridge at all. The bridge is
+  roughly one function and would be deleted by M2; writing it means testing something twice. Not
+  chosen yet, and the choice is recorded here rather than made silently in whichever commit comes
+  first.
 - **A version 1 certificate carries no basic constraints extension at all**, and RFC 5280 §4.2.1.9
   phrases its prohibition for the case where the extension "is not present in a *version 3*
   certificate". Read closely, that sentence does not reach a v1 issuer, so the text does not say
