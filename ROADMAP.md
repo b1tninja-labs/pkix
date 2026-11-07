@@ -76,6 +76,29 @@ What was tried, all on 2026-11-07, so the next attempt starts here rather than r
 | web search for the CFHEADER/CFFOLDER pages | CAPTCHA, no results |
 | Wikipedia's cabinet article | **no byte-level field tables at all**, and flagged as containing original research |
 
+Re-attempted 2026-11-11, four sources the table above did not try. Still unreachable, and the
+shape of the failure is now clearer than it was:
+
+| Source attempted | Result |
+|---|---|
+| `https://interoperability.blob.core.windows.net/files/MS-CAB/[MS-CAB].pdf` (and MS-CTL) | **DNS does not resolve** from this environment; the host is outside the egress allow-list |
+| `https://web.archive.org/cdx/search/cdx?url=learn.microsoft.com/...ms-cab*` | **HTTP 503**, so no archived copy could even be located, let alone fetched |
+| `https://learn.microsoft.com/en-us/openspecs/file_formats/ms-cab/` and `.../windows_protocols/ms-ctl/` | **HTTP 404** — and this is the correction to the 2026-11-07 entry: `learn.microsoft.com` itself resolves and answers (a legacy `msdn.microsoft.com` URL returned 200 by redirecting), so the host was never the obstacle. The document is. |
+| `https://learn.microsoft.com/api/search?search=CFHEADER cabinet file format` | 30 results, **none of them the specification** — no CFHEADER/CFFOLDER page exists on the site any more |
+
+So the block is not a network policy that a different route would satisfy: Microsoft appears to
+have withdrawn the MS-CAB pages from the site that carried them, the PDF archive host is
+unreachable from here, and the one place that could hold a superseded copy — the Wayback
+Machine — would not answer. **M7 remains blocked, and `cab.member()` stays `[ ]`.**
+
+Two things this section should record about the loop rather than about the network. First,
+`sdk-forge/loop.py next` recommended `cab.member()` on 2026-11-11 as the portfolio's next
+obligation. Its arithmetic is eligibility over board fields — Active projects, row status,
+milestone, dependencies — and it does not read this prose, so a block that exists only as a
+paragraph and a native link is invisible to it. Second, that is precisely why the exit rule below
+is written as a rule about evidence rather than about effort: the recommendation was followed far
+enough to look for the document, and the document is what refused.
+
 Two negative observations from poking the pinned CABs directly, recorded as *where it hurt*, not as
 format knowledge: the CFHEADER and CFFOLDER records at the offsets tried parsed consistently with the
 member name and sizes visible in the raw bytes, and **iteration of CFFILE records failed twice** on the
