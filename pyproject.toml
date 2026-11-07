@@ -32,7 +32,7 @@ classifiers = [
 ]
 # Empty unless a module cannot be honest without it. Every entry needs a sentence in
 # README.md explaining why the zero-dependency rule was broken for it.
-dependencies = ["cryptography>50.0.2"]
+dependencies = ["cryptography>=50.0.2"]
 
 [project.optional-dependencies]
 dev = [
