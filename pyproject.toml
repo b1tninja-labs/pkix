@@ -32,7 +32,17 @@ classifiers = [
 ]
 # Empty unless a module cannot be honest without it. Every entry needs a sentence in
 # README.md explaining why the zero-dependency rule was broken for it.
-dependencies = ["cryptography>=50.0.2"]
+#
+# asn1core is the reason this project can claim what RFC 5280 sec. 4.1.1.3 requires: the
+# signature is computed over "the ASN.1 DER encoded tbsCertificate", so a validator needs the
+# bytes that arrived, not a codec's re-encoding of them. It is not published on an index yet --
+# its own README says pre-alpha -- so until it ships this resolves from the sibling checkout in
+# this workspace, exactly as certledger resolves it. That is a real cost and docs/plan.md
+# already states it: no pkix release is promised before asn1core has one of its own.
+#
+# cryptography is here for signature primitives and, for one more commit, for parsing; README
+# carries both roles and what retires each.
+dependencies = ["asn1core", "cryptography>=50.0.2"]
 
 [project.optional-dependencies]
 dev = [
@@ -68,7 +78,10 @@ include = ["/pkix/", "/tests/", "/docs/", "/README.md", "/ROADMAP.md", "/CHANGEL
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["."]
+# "../asn1core" resolves the codec from the sibling checkout in this workspace, the way
+# certledger resolves its two. It is not on an index yet, so a standalone clone cannot run
+# the suite until asn1core publishes; the comment on `dependencies` says what that costs.
+pythonpath = [".", "../asn1core"]
 asyncio_mode = "auto"
 addopts = "-ra"
 
@@ -92,6 +105,9 @@ exclude_lines = [
 [tool.ruff]
 target-version = "py312"
 line-length = 100
+# The CI jobs check asn1core out into .deps/ to satisfy an unpublished dependency; linting a
+# borrowed checkout would make this project's gate depend on another project's style.
+extend-exclude = [".deps"]
 
 [tool.ruff.lint]
 select = ["E", "W", "F", "I", "B", "N", "UP", "SIM", "C4", "PT", "RUF", "S", "RET", "ARG"]
@@ -110,6 +126,9 @@ indent-style = "space"
 
 [tool.mypy]
 python_version = "3.12"
+# Checked against asn1core's own annotations when the sibling checkout is present; with
+# ignore_missing_imports below, its absence degrades to unchecked rather than to a false error.
+mypy_path = "../asn1core"
 warn_unused_ignores = true
 warn_redundant_casts = true
 no_implicit_optional = true

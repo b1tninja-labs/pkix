@@ -13,6 +13,17 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
+      # asn1core is load-bearing (see the comment in pyproject.toml) and is not on an index yet,
+      # so the job installs it from its own repository before resolving this project's metadata.
+      # The checkout lands in .deps/ rather than beside the project because actions/checkout
+      # refuses a path outside the workspace; .deps is excluded from ruff for that reason.
+      # When asn1core publishes, this step and the sibling paths in pyproject.toml come out
+      # together -- one of the few places in this repository where a CI step is temporary.
+      - uses: actions/checkout@v4
+        with:
+          repository: b1tninja/asn1core
+          path: .deps/asn1core
+      - run: python -m pip install --no-deps .deps/asn1core
       - run: python -m pip install -e ".[dev]"
       - run: ruff check .
       - run: ruff format --check .
@@ -39,6 +50,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
+      - uses: actions/checkout@v4
+        with:
+          repository: b1tninja/asn1core
+          path: .deps/asn1core
+      - run: python -m pip install --no-deps .deps/asn1core
       - run: python -m pip install -e ".[dev]"
       - run: python -m pytest -q --cov
       # Asserts stripped: a wire path guarded by assert is unguarded in production.
