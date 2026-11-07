@@ -16,20 +16,22 @@ drift apart within one release, and the document becomes useless exactly when it
 
 ## 1. Obligations
 
-| Obligation | Spec | Status | Where |
-|---|---|---|---|
-| `anchors.load_anchor()` | RFC 5280 sec. 6.1 | `[ ]` | `tests/test_obligations.py::load_anchor` |
-| `chain.candidates()` | RFC 5280 sec. 6.1 | `[ ]` | `tests/test_obligations.py::candidates` |
-| `validity.check_signature()` | RFC 5280 | `[ ]` | `tests/test_obligations.py::check_signature` |
-| `validity.check_validity()` | RFC 5280 | `[ ]` | `tests/test_obligations.py::check_validity` |
-| `names.constraint_holds()` | RFC 5280 | `[ ]` | `tests/test_obligations.py::constraint_holds` |
-| `policy.resolve()` | RFC 5280 | `[ ]` | `tests/test_obligations.py::resolve` |
-| `revocation.status_of()` | RFC 5280 | `[ ]` | `tests/test_obligations.py::status_of` |
-| `result.validate()` | RFC 5280 sec. 6 | `[ ]` | `tests/test_obligations.py::validate` |
-| `store.remember()` | design | `[ ]` | `tests/test_obligations.py::remember` |
-| `cab.member()` | MS-CAB (vendor format, not an RFC) | `[ ]` | `tests/test_obligations.py::cab_member` |
-| `ctl.root_program()` | MS-CTL (vendor format, not an RFC) | `[ ]` | `tests/test_obligations.py::ctl_root_program` |
-| `ctl.signed_by_microsoft()` | MS-CTL Authenticode | `[ ]` | `tests/test_obligations.py::ctl_signed_by_microsoft` |
+| Obligation | Spec | Status | Where | Milestone |
+|---|---|---|---|---|
+| `anchors.load_anchor()` | RFC 5280 sec. 6.1 | `[ ]` | `tests/test_obligations.py::load_anchor` | M1 |
+| `chain.candidates()` | RFC 5280 sec. 6.1 | `[ ]` | `tests/test_obligations.py::candidates` | M1 |
+| `validity.check_signature()` | RFC 5280 | `[ ]` | `tests/test_obligations.py::check_signature` | M2 |
+| `validity.check_validity()` | RFC 5280 | `[ ]` | `tests/test_obligations.py::check_validity` | M2 |
+| `names.constraint_holds()` | RFC 5280 | `[ ]` | `tests/test_obligations.py::constraint_holds` | M3 |
+| `policy.resolve()` | RFC 5280 | `[ ]` | `tests/test_obligations.py::resolve` | M4 |
+| `revocation.status_of()` | RFC 5280 | `[ ]` | `tests/test_obligations.py::status_of` | M5 |
+| `result.validate()` | RFC 5280 sec. 6 | `[ ]` | `tests/test_obligations.py::validate` | M6 |
+| `store.remember()` | design | `[ ]` | `tests/test_obligations.py::remember` | - |
+| `cab.member()` | MS-CAB (vendor format, not an RFC) | `[ ]` | `tests/test_obligations.py::cab_member` | M7 |
+| `ctl.root_program()` | MS-CTL (vendor format, not an RFC) | `[ ]` | `tests/test_obligations.py::ctl_root_program` | M7 |
+| `ctl.signed_by_microsoft()` | MS-CTL Authenticode | `[ ]` | `tests/test_obligations.py::ctl_signed_by_microsoft` | M7 |
+
+The Milestone column places each row on the ladder in section 2, using that ladder's own wording. Two placements are a reading and not a quotation: `result.validate()` sits at M6 because the conformance trace exercises the whole-path entry point, and `store.remember()` is a design row the ladder does not place, so it carries `-`.
 
 ### Why the CTL rows belong here and not in `trustatlas`
 

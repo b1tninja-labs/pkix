@@ -1,4 +1,7 @@
-"""the section 6.2 processing: signature, validity, issuer, name constraints (RFC 5280).
+"""Basic certificate processing, RFC 5280 section 6.1.3: signature, validity, issuer, name constraints.
+
+This cited section 6.2 until 2026-11-07; section 6.2 is "Using the Path Validation Algorithm", and the
+per-certificate checks are step (a) of section 6.1.3 (outline and text read through rfclib).
 
 Every object in this module is a placeholder until the milestone named in ROADMAP.md lands. A
 stub raises instead of returning a plausible empty value: a protocol library that silently
