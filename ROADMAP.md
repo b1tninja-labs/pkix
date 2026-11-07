@@ -131,3 +131,13 @@ the code existing. Coverage in `pyproject.toml` ratchets in the same commit.
 - [ ] interoperability evidence recorded in `docs/` against a non-Python implementation
 - [ ] `tools/check_dist.py` proves the wheel ships the fixtures the README promises
 - [ ] version 0.1.0 tagged, trusted publisher configured, README badges uncommented
+
+## Board projection
+
+`py sdk-forge/sync_roadmap.py --project pkix --check` projects §1 onto GitHub issues, collected on Project
+V2 **#2 "Protocol SDK portfolio"**. Read through the hosted GitHub MCP server on 2026-11-07: **12 items**, all
+open, all `status:unimplemented`. The matrix holds 16 rows: 12 `[ ]` filed, 4 `[no]` in §4 deliberately not
+filed, because a non-goal is a decision and not a piece of work.
+
+A dated snapshot, not a live count. The board is the live view and this file is the source of truth: a board
+cannot refuse a row that claims `[ok]` without a test, and `tests/test_roadmap_rows.py` can.
