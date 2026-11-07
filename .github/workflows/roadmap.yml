@@ -1,0 +1,31 @@
+name: roadmap
+
+# Pilot for the forge's composite action: the obligation matrix and the GitHub issues derived from it
+# must agree, and every row must name a callable that exists. The check is read-only.
+#
+# This file exists in pkix first, rather than in the forge templates, on purpose: the forge's own CI
+# cannot run this gate at all (it holds no project checkouts), and whether a private action repository
+# is even reachable from another personal repository is something to learn here rather than assume
+# eighteen times over.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: read
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: b1tninja/sdk-forge@main
+        with:
+          project: pkix
