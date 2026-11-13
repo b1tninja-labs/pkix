@@ -52,16 +52,20 @@ rather than merely incomplete.
 3. **Normative text is never paraphrased from memory.** Fetch it with `rfclib` and
    cite the section. If the text you fetch does not say what the obligation claims,
    the obligation is wrong: fix the roadmap row and say so in the commit.
-4. **Dependencies.** `pyproject.toml` here declares these runtime dependencies: cryptography 50.0.2. Adding a runtime
-   dependency needs a paragraph of justification in `docs/strategy.md` explaining
-   why the standard library is not enough.
+4. **Dependencies.** The runtime dependencies are `asn1core` and `sigwire[verify]`, both resolved from sibling
+   checkouts. `cryptography` is **not** one: nothing in `pkix/` may import it, a test enforces that, and it is
+   a dev dependency for minting test certificates and as a differential oracle. Certificate parsing is
+   `asn1core`'s and signature arithmetic is `sigwire[verify]`'s (which reaches `cryptography` for the primitives, as
+   the owner's rule of 2026-11-12 allows). Adding a runtime dependency needs a paragraph of justification in
+   `docs/strategy.md` explaining why the standard library, `asn1core` and `sigwire[verify]` are not enough.
 5. **Scope.** What is deliberately absent is listed under Non-goals in `README.md`.
    An agent that "helpfully" implements a non-goal has expanded the API surface that
    has to be supported forever.
 
 ## Read before implementing
 
-- RFC 5280 carries 6 verified errata and is updated by RFC 6818, RFC 8398, RFC 8399, RFC 9549, RFC 9598, RFC 9608, RFC 9618, RFC 9925 and RFC 10007. The updates are not editorial: internationalised names and notBefore bounds changed the answer.
+- RFC 5280 carries 6 verified errata and is updated by RFC 6818, RFC 9549, RFC 9598, RFC 9608, RFC 9618, RFC 9925 and RFC 10007. RFC 8398 and RFC 8399 are obsolete (by RFC 9598 and RFC 9549): do not cite them. The updates are not editorial. RFC 9618 replaces the policy tree with a graph, so `policy.resolve()` implements 9618 and not the 5280 text; RFC 10007 amends the CRL issuer check; RFC 9608 skips revocation for noRevAvail; RFC 9925 makes id-alg-unsigned never verify.
+- The signature documents (RFC 3279, 4055, 5480, 5758, 8017, 8032, 8410) are in `docs/rfc-map.md` with their errata. RFC 8017 erratum 5154 (sha224WithRSAEncryption is SHA-224) and RFC 8032 errata 5519, 5930, 5968 are pinned in tests.
 - RFC 5912 carries 8 verified errata.
 - RFC 6960 carries 6 verified errata.
 

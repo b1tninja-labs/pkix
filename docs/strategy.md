@@ -41,8 +41,13 @@ were signed. The position now:
 | DER, the certificate/extension structures, distinguished names and §7.1 comparison | `asn1core` | it keeps every field as a slice of the document that arrived |
 | what a name match, a constraint or a policy means | `pkix` | this project's whole reason to exist |
 | big-integer arithmetic and digests | the standard library | `pow(m, e, n)` and `hashlib`, neither of which is ours to rewrite |
-| the verification equations and paddings | `pkix`, as of the M2 row | see "verify-only" below |
-| a second opinion on all of it | `cryptography`, dev-only | differential testing against a different implementation |
+| the verification equations and paddings | `sigwire[verify]`, one home for every project that verifies | decided 2026-11-12: pkix, signeddata, pgpenv and pkgtrust share one audited verifier instead of four |
+| the arithmetic under those equations | `cryptography`, reached only through `sigwire[verify]` | the owner's rule of 2026-11-12: the package is for primitives, and certificate parsing and everything else is ours |
+| a second opinion on all of it | `cryptography`, dev-only | differential testing against a different implementation (`tests/test_signatures.py`) |
+
+Updated 2026-11-13. This table said the verification equations were pkix's own. They are `sigwire[verify]`'s,
+and what remains in pkix is the decision of *which* verification a certificate asks for
+(`pkix/_algorithms.py`) and the refusal of everything it cannot decide.
 
 **The section number was wrong in the plan.** `docs/plan.md` cited RFC 5280 §4.1.3.2, and §4.1 ends
 at §4.1.2.9; no §4.1.3.2 exists. The clause is §4.1.1.3: "The signatureValue field contains a
@@ -78,11 +83,11 @@ tested nothing.
 
 ### The commit-ordering rule
 
-`pyproject.toml` keeps `cryptography` as a runtime dependency until the last import of it is gone
-from `pkix/`, and `dependencies` becomes empty in that same commit. Declaring the destination
-before the code arrives would make the metadata describe a project that does not exist, which is
-the failure this file exists to prevent. Until then `README.md` says so plainly rather than
-describing the plan as the state.
+`pyproject.toml` keeps a dependency until the last import of it is gone from `pkix/`, and drops it in
+that same commit. Declaring the destination before the code arrives would make the metadata describe
+a project that does not exist, which is the failure this file exists to prevent. This rule was applied
+on 2026-11-13: the commit that deleted `anchors`' last `cryptography` import moved it to the dev
+group and added `sigwire[verify]`, and `tests/test_anchors_asn1core.py` fails if either half drifts.
 
 ### What could not be cited, and is therefore a decision rather than a requirement
 

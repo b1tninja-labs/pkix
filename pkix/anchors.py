@@ -13,14 +13,13 @@ from __future__ import annotations
 
 import ipaddress
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
 
-from cryptography import x509
-from cryptography.exceptions import InvalidSignature, UnsupportedAlgorithm
-from cryptography.hazmat.primitives import serialization
+import asn1core
+import sigwire.verify
 
-if TYPE_CHECKING:
-    from cryptography.hazmat.primitives.asymmetric.types import PublicKeyTypes
+from . import _algorithms as alg
+from .errors import MalformedCertificate, PkixError
+from .validity import SignatureResult, check_signature_with_spki
 
 __all__ = ["Subtree", "TrustAnchor", "load_anchor"]
 
@@ -32,10 +31,6 @@ RFC822_NAME = "rfc822Name"
 IP_ADDRESS = "IPAddress"
 
 _PREFIXES = {"dn": DIRECTORY_NAME, "email": RFC822_NAME, "ip": IP_ADDRESS}
-
-_SEQUENCE = 0x30
-_OID = 0x06
-_NULL = 0x05
 
 
 @dataclass(frozen=True)
@@ -55,129 +50,49 @@ class TrustAnchor:
     """The trust anchor information sec. 6.1.1(d) asks the path processing logic for.
 
     Fields are commented with the numbering the section uses, so checking this code against the
-    document does not require translating between two sets of names.
+    document does not require translating between two sets of names. Everything here was read by
+    `asn1core`, and every byte string is a slice of the document that arrived.
     """
 
-    #: (1) the trusted issuer name: the certificate's subject, not its issuer.
-    issuer: str
-    #: (2) the trusted public key algorithm, as the OID the SPKI carries.
+    #: (1) the trusted issuer name: the certificate's subject, not its issuer. Equality on it is
+    #: the RFC 5280 section 7.1 match, so spelling differences do not make two names differ.
+    issuer: asn1core.Name
+    #: (2) the trusted public key algorithm, as the dotted OID the SPKI carries.
     algorithm: str
-    #: (3) the trusted public key.
-    public_key: PublicKeyTypes
-    #: (4) the algorithm parameters, when the algorithm has any. NULL and absent both read as
-    #: None, because an RSA SPKI's NULL carries nothing a verifier needs.
+    #: (3) the trusted public key: the subjectPublicKey octets, without the BIT STRING's
+    #: unused-bits octet. `spki` is the whole stored SubjectPublicKeyInfo.
+    public_key: bytes
+    #: (4) the algorithm parameters as the stored TLV, when the algorithm has any. NULL and absent
+    #: both read as None, because an RSA SPKI's NULL carries nothing a verifier needs.
     parameters: bytes | None
-    #: The certificate the anchor was loaded from, when it was supplied as one.
+    #: The stored SubjectPublicKeyInfo TLV: what `verify` checks signatures against.
+    spki: bytes
+    #: The certificate the anchor was loaded from, and its stored tbsCertificate.
     certificate: bytes | None
-    #: Whether that certificate is its own issuer and verifies under its own key. Recorded,
-    #: never required: sec. 6.1.1 permits a self-signed certificate, it does not demand one,
-    #: and a cross-certificate is a legal anchor.
+    tbs: bytes | None
+    #: Whether the certificate's issuer and subject names match (RFC 5280 section 3.3, section
+    #: 7.1 comparison). Recorded, never required: sec. 6.1.1 permits a self-signed certificate,
+    #: it does not demand one, and a cross-certificate is a legal anchor.
+    self_issued: bool
+    #: Whether it is self-issued and its signature verifies under its own key, checked with the
+    #: legacy signature policy because a root's age is a fact to record, not a reason to refuse
+    #: to load it. False also when the algorithm is one pkix cannot verify yet; `verify` says why.
     self_signed: bool
     #: initial-permitted-subtrees, sec. 6.1.1(h).
     permitted_subtrees: tuple[Subtree, ...] = ()
 
+    def verify(
+        self,
+        certificate: bytes | asn1core.Certificate,
+        *,
+        policy: sigwire.verify.Policy = sigwire.verify.DEFAULT,
+    ) -> SignatureResult:
+        """Check that `certificate` was signed by this anchor's key (RFC 5280 section 6.1.3 (a)(1)).
 
-def _read_tlv(data: bytes, offset: int) -> tuple[int, bytes, int]:
-    """Return (tag, value, offset just past the element) for the TLV at `offset`.
-
-    This walks one known structure rather than parsing arbitrary DER, and it refuses what it
-    cannot make sense of instead of skipping it: a silently skipped field is how a parser ends
-    up reporting a signature algorithm as a key algorithm.
-    """
-    if offset >= len(data):
-        raise ValueError("truncated DER: element starts past the end")
-    tag = data[offset]
-    cursor = offset + 1
-    if tag & 0x1F == 0x1F:  # high-tag-number form: trailing-bit-continued octets
-        while cursor < len(data) and data[cursor] & 0x80:
-            cursor += 1
-        cursor += 1
-    if cursor >= len(data):
-        raise ValueError("truncated DER: no length octets")
-    first = data[cursor]
-    cursor += 1
-    if first & 0x80:
-        count = first & 0x7F
-        if count == 0 or count > 4:
-            raise ValueError("unsupported DER length encoding")
-        length = int.from_bytes(data[cursor : cursor + count], "big")
-        cursor += count
-    else:
-        length = first
-    value = data[cursor : cursor + length]
-    if len(value) != length:
-        raise ValueError("truncated DER: value shorter than its length")
-    return tag, value, cursor + length
-
-
-def _decode_oid(value: bytes) -> str:
-    """A DER OBJECT IDENTIFIER value, in dotted-decimal form."""
-    if not value:
-        raise ValueError("empty OBJECT IDENTIFIER")
-    first_octet = value[0]
-    if first_octet < 40:
-        parts = [0, first_octet]
-    elif first_octet < 80:
-        parts = [1, first_octet - 40]
-    else:
-        parts = [2, first_octet - 80]
-    accumulator = 0
-    started = False
-    for byte in value[1:]:
-        accumulator = (accumulator << 7) | (byte & 0x7F)
-        started = True
-        if not byte & 0x80:
-            parts.append(accumulator)
-            accumulator = 0
-            started = False
-    if started or accumulator:
-        raise ValueError("unterminated OBJECT IDENTIFIER subidentifier")
-    return ".".join(str(part) for part in parts)
-
-
-def _spki_algorithm(spki: bytes) -> tuple[str, bytes | None]:
-    """The AlgorithmIdentifier of a DER SubjectPublicKeyInfo: (algorithm OID, parameters).
-
-    Why read from the bytes instead of asked of the key object: this version of cryptography
-    reports the algorithm that *signed* a certificate, not the algorithm its key carries, and
-    sec. 6.1.1(d)(2) wants the second. On a cross-certificate they differ -- ISRG Root X2's
-    cross-certificate is signed with RSA by X1 while carrying an EC key -- so confusing the two
-    is a bug that only shows up on the anchors a path builder most needs right.
-    """
-    tag, spki_body, _ = _read_tlv(spki, 0)
-    if tag != _SEQUENCE:
-        raise ValueError("malformed SubjectPublicKeyInfo: not a SEQUENCE")
-    tag, algorithm_block, _ = _read_tlv(spki_body, 0)
-    if tag != _SEQUENCE:
-        raise ValueError("malformed SubjectPublicKeyInfo: algorithm is not a SEQUENCE")
-    tag, oid_value, after_oid = _read_tlv(algorithm_block, 0)
-    if tag != _OID:
-        raise ValueError("malformed SubjectPublicKeyInfo: algorithm is not an OID")
-    algorithm = _decode_oid(oid_value)
-    parameters = algorithm_block[after_oid:]
-    if not parameters:
-        return algorithm, None
-    parameter_tag, _, _ = _read_tlv(parameters, 0)
-    if parameter_tag == _NULL:
-        return algorithm, None
-    return algorithm, parameters
-
-
-def _self_signed(certificate: x509.Certificate) -> bool:
-    """Whether the certificate is issued by itself, checked rather than inferred.
-
-    The names matching is not sufficient: a re-issuance under the same subject would look
-    self-signed and not be. So the signature is verified under the certificate's own key. This
-    is a fact reported to the caller, not a condition for loading -- sec. 6.1.1 does not require
-    a trust anchor to be self-signed.
-    """
-    if certificate.issuer != certificate.subject:
-        return False
-    try:
-        certificate.verify_directly_issued_by(certificate)
-    except (InvalidSignature, UnsupportedAlgorithm, TypeError, ValueError):
-        return False
-    return True
+        Raises what `validity.check_signature` raises. Until the anchor's key algorithm is one pkix
+        verifies, that is `SignatureUnsupported`, loudly, and never a quiet pass.
+        """
+        return check_signature_with_spki(certificate, self.spki, policy=policy)
 
 
 def _permitted_subtree(restriction: str) -> Subtree:
@@ -230,27 +145,43 @@ def load_anchor(cert_der: bytes, name_restriction: str | None = None) -> TrustAn
     `name_restriction`, when given, becomes one permitted-subtree root of sec. 6.1.1(h); see
     `_permitted_subtree` for how its name type is decided.
     """
+    raw = bytes(cert_der)
     try:
-        certificate = x509.load_der_x509_certificate(bytes(cert_der))
-    except Exception as exc:
-        raise ValueError(f"not a DER certificate: {exc}") from exc
+        certificate = asn1core.parse_certificate(raw)
+    except asn1core.Asn1Error as exc:
+        raise MalformedCertificate(f"not a DER certificate: {exc}") from exc
 
-    key = certificate.public_key()
-    spki = key.public_bytes(
-        serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo
-    )
-    algorithm, parameters = _spki_algorithm(spki)
+    spki = certificate.subject_public_key_info
+    try:
+        algorithm, key_octets = alg.split_spki(spki)
+    except PkixError as exc:
+        raise MalformedCertificate(f"not a usable subjectPublicKeyInfo: {exc}") from exc
+    parameters = algorithm.parameters
+    parameter_bytes = None if parameters is None or alg.is_null(parameters) else parameters.raw
 
     subtrees: tuple[Subtree, ...] = ()
     if name_restriction is not None:
         subtrees = (_permitted_subtree(name_restriction),)
 
+    self_issued = certificate.self_issued
+    self_signed = False
+    if self_issued:
+        try:
+            check_signature_with_spki(certificate, spki, policy=sigwire.verify.LEGACY)
+        except PkixError:
+            self_signed = False
+        else:
+            self_signed = True
+
     return TrustAnchor(
-        issuer=certificate.subject.rfc4514_string(),
-        algorithm=algorithm,
-        public_key=key,
-        parameters=parameters,
-        certificate=bytes(cert_der),
-        self_signed=_self_signed(certificate),
+        issuer=certificate.subject,
+        algorithm=algorithm.oid,
+        public_key=key_octets,
+        parameters=parameter_bytes,
+        spki=spki,
+        certificate=raw,
+        tbs=certificate.tbs_certificate,
+        self_issued=self_issued,
+        self_signed=self_signed,
         permitted_subtrees=subtrees,
     )

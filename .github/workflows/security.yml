@@ -25,6 +25,13 @@ jobs:
           repository: b1tninja/asn1core
           path: .deps/asn1core
       - run: python -m pip install --no-deps .deps/asn1core
+      # sigwire[verify] (the verify-only signatures, formerly sigprim) is an unpublished sibling too;
+      # cryptography arrives through this project's own dependencies, so --no-deps is enough.
+      - uses: actions/checkout@v4
+        with:
+          repository: b1tninja/sigwire
+          path: .deps/sigwire
+      - run: python -m pip install --no-deps .deps/sigwire
       - run: python -m pip install -e ".[dev]" pip-audit
       # The resolved environment is audited rather than the declarations, because the declarations
       # are floors. It is audited in place rather than through a frozen requirements file: a freeze

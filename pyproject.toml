@@ -40,9 +40,12 @@ classifiers = [
 # this workspace, exactly as certledger resolves it. That is a real cost and docs/plan.md
 # already states it: no pkix release is promised before asn1core has one of its own.
 #
-# cryptography is here for signature primitives and, for one more commit, for parsing; README
-# carries both roles and what retires each.
-dependencies = ["asn1core", "cryptography>=50.0.2"]
+# sigwire[verify] is the verify-only signature primitives (RSA PKCS #1 v1.5 and PSS, ECDSA, Ed25519) that
+# `validity.check_signature` calls; it is the portfolio's one home for that arithmetic and, like
+# asn1core, resolves from the sibling checkout until it publishes. `cryptography` is no longer a
+# runtime dependency: pkix parses certificates with asn1core and verifies with sigwire.verify, and the
+# test suite uses `cryptography` only to mint synthetic certificates and as a differential oracle.
+dependencies = ["asn1core", "sigwire[verify]"]
 
 [project.optional-dependencies]
 dev = [
@@ -52,6 +55,8 @@ dev = [
   "hypothesis",
   "ruff",
   "mypy",
+  # dev-only: mints synthetic certificates (pkix never signs) and is the differential oracle.
+  "cryptography>=50.0.2",
   # tools/check_dist.py cannot assert a wheel contains what the docs promise without
   # first being able to build one, so the build dependency belongs in the dev group.
   "build",
@@ -81,7 +86,7 @@ testpaths = ["tests"]
 # "../asn1core" resolves the codec from the sibling checkout in this workspace, the way
 # certledger resolves its two. It is not on an index yet, so a standalone clone cannot run
 # the suite until asn1core publishes; the comment on `dependencies` says what that costs.
-pythonpath = [".", "../asn1core"]
+pythonpath = [".", "../asn1core", "../sigwire"]
 asyncio_mode = "auto"
 addopts = "-ra"
 
@@ -90,11 +95,11 @@ branch = true
 source = ["pkix"]
 
 [tool.coverage.report]
-# The shell floor, deliberately low and deliberately ratcheted: a stub only earns
+# The floor, deliberately ratcheted: a stub only earns
 # coverage for the line that raises. Raise this in the commit that implements a
 # milestone, never in a commit that only adds tests, so the number keeps meaning
 # "this behaviour is exercised" rather than "this file was imported".
-fail_under = 45
+fail_under = 80
 show_missing = true
 exclude_lines = [
   "if __name__ == .__main__.:",
@@ -119,6 +124,9 @@ ignore = [
 # S101 in tests is the policy, S311 is a seeded generator rather than a token, and a
 # test double has to accept parameters it ignores, which ARG would otherwise flag.
 "tests/*" = ["S101", "S106", "S311", "ARG001", "ARG002"]
+# The exception classes are named for the answer they give (SignatureInvalid, SignatureUnsupported),
+# the way sigwire.verify names its own, and an `Error` suffix on each would only lengthen every except clause.
+"pkix/errors.py" = ["N818"]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -128,7 +136,7 @@ indent-style = "space"
 python_version = "3.12"
 # Checked against asn1core's own annotations when the sibling checkout is present; with
 # ignore_missing_imports below, its absence degrades to unchecked rather than to a false error.
-mypy_path = "../asn1core"
+mypy_path = "../asn1core:../sigwire"
 warn_unused_ignores = true
 warn_redundant_casts = true
 no_implicit_optional = true

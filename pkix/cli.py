@@ -26,7 +26,7 @@ def build_parser():
 def main(argv=None):
     """Parse arguments, then refuse to pretend the protocol works.
 
-    Exiting non-zero is the correct behaviour for a shell. A CLI that printed a friendly
+    Exiting non-zero is the correct behaviour while the command is a stub. A CLI that printed a friendly
     banner and exited 0 would be indistinguishable from one that actually did something.
     """
     parser = build_parser()

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import importlib
 import pathlib
+import re
 
 import pkix as package
 
@@ -44,3 +45,35 @@ def test_every_row_names_a_real_callable():
         if not hasattr(module, fn):
             missing.append(module_name + "." + fn)
     assert not missing, "matrix rows naming nothing: " + ", ".join(missing)
+
+
+def done_rows():
+    """Every row marked [ok], with the cell that must name its evidence."""
+    rows = []
+    text = (ROOT / "ROADMAP.md").read_text(encoding="utf-8")
+    for line in text.splitlines():
+        if not line.startswith(BAR + " " + TICK):
+            continue
+        cells = [cell.strip() for cell in line.split(BAR)[1:-1]]
+        if len(cells) >= 4 and cells[2] == TICK + "[ok]" + TICK:
+            rows.append((cells[0], cells[3]))
+    return rows
+
+
+def test_every_done_row_names_a_test_that_exists():
+    """The honesty rule, enforced: `[ok]` needs a named test that is in the tree, so a row cannot
+    claim done on the strength of prose. (That the test would fail on a regression is a review
+    question; that it exists is a check.)"""
+    assert done_rows(), "ROADMAP.md has no [ok] rows to check"
+    problems = []
+    for row, evidence in done_rows():
+        refs = re.findall(r"(tests/[\w./-]+\.py)::(\w+)", evidence)
+        if not refs:
+            problems.append(row + ": no tests/<file>::<test> in the Where cell")
+        for path, name in refs:
+            file = ROOT / path
+            if not file.is_file():
+                problems.append(row + ": " + path + " does not exist")
+            elif "def " + name + "(" not in file.read_text(encoding="utf-8"):
+                problems.append(row + ": " + path + " has no " + name)
+    assert not problems, "; ".join(problems)

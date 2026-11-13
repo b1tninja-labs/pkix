@@ -14,7 +14,6 @@ from __future__ import annotations
 import pathlib
 
 import pytest
-from cryptography.hazmat.primitives.asymmetric import ec, rsa
 
 from pkix.anchors import Subtree, load_anchor
 
@@ -38,20 +37,21 @@ def test_a_trust_anchor_carries_the_name_and_key_that_sec_611_requires():
     """Sec. 6.1.1(d): trusted issuer name, public key algorithm, public key, and the
     certificate it came from so a caller can re-derive anything else it needs."""
     anchor = load_anchor(der("isrg-root-x1.der"), None)
-    assert anchor.issuer == ROOT_X1
+    assert anchor.issuer.rfc4514() == ROOT_X1
     assert anchor.algorithm == RSA_ENCRYPTION
-    assert isinstance(anchor.public_key, rsa.RSAPublicKey)
+    # The key is the RSAPublicKey SEQUENCE the SPKI's BIT STRING carries, as stored bytes.
+    assert anchor.public_key[:1] == b"0"
+    assert anchor.public_key in anchor.spki
     assert anchor.certificate == der("isrg-root-x1.der")
 
 
 def test_the_trusted_issuer_name_is_the_subject_and_not_the_issuer_field():
     """Sec. 6.1.1: "the name in the subject field is used as the trusted issuer name"."""
     anchor = load_anchor(der("isrg-root-x2-cross-signed.der"), None)
-    assert anchor.issuer == ROOT_X2
+    assert anchor.issuer.rfc4514() == ROOT_X2
     # ...and the key algorithm is the one in the SPKI, not the one that signed the
     # certificate -- this cross-certificate was signed with RSA by X1 but carries an EC key.
     assert anchor.algorithm == ID_EC_PUBLIC_KEY
-    assert isinstance(anchor.public_key, ec.EllipticCurvePublicKey)
     # An EC key needs its curve; the algorithm parameters are input (4).
     assert anchor.parameters
 

@@ -1,4 +1,4 @@
-"""The shell contract: the surface exists, is documented, and refuses to lie.
+"""The surface contract: it exists, is documented, and a stub refuses to lie.
 
 These are the tests that must fail loudly if a stub ever starts returning a plausible
 empty value instead of raising. That is how a protocol library quietly becomes wrong: a

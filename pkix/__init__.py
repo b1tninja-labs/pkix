@@ -8,7 +8,7 @@ dead since 2022-03-18.
 
 from __future__ import annotations
 
-from . import anchors, apps, chain, cli, names, policy, result, revocation, store, validity
+from . import anchors, apps, chain, cli, errors, names, policy, result, revocation, store, validity
 from .anchors import Subtree, TrustAnchor, load_anchor
 from .chain import candidates
 from .names import constraint_holds
@@ -32,6 +32,7 @@ __all__ = [
     "check_validity",
     "cli",
     "constraint_holds",
+    "errors",
     "load_anchor",
     "names",
     "policy",
