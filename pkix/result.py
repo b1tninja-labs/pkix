@@ -133,6 +133,10 @@ class PathInputs:
     initial_name_constraints: NameConstraints = field(default_factory=NameConstraints)
     signature_policy: sigwire.verify.Policy = sigwire.verify.DEFAULT
     revocation: RevocationChecker | None = None
+    #: RFC 9618 sections 6.2 and 6.3: reject a path longer than this, or whose policy graph grows
+    #: past this many nodes. None means no bound; the document names no number.
+    policy_max_depth: int | None = None
+    policy_max_nodes: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -386,6 +390,8 @@ def path_walk(
             initial_explicit_policy=inputs.initial_explicit_policy,
             initial_policy_mapping_inhibit=inputs.initial_policy_mapping_inhibit,
             initial_inhibit_any_policy=inputs.initial_any_policy_inhibit,
+            max_depth=inputs.policy_max_depth,
+            max_nodes=inputs.policy_max_nodes,
         )
         if not outcome.succeeded:
             raise walk.fail(0, "6.1.3(d)-6.1.5(g) policy (RFC 9618)", outcome.reason or "")

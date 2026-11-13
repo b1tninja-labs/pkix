@@ -302,6 +302,65 @@ def _alt(*names: x509.GeneralName) -> tuple[x509.ExtensionType, bool]:
     return x509.SubjectAlternativeName(list(names)), False
 
 
+def _mailbox_san(value: str, *, type_id: str = "1.3.6.1.5.5.7.8.9") -> x509.GeneralName:
+    """An otherName holding a UTF8String, as RFC 9598 sec. 3 encodes SmtpUTF8Mailbox."""
+    text = value.encode()
+    assert len(text) < 128
+    return x509.OtherName(x509.ObjectIdentifier(type_id), bytes([0x0C, len(text)]) + text)
+
+
+def test_an_smtp_utf8_mailbox_is_read_and_compared_under_the_rfc822_constraints():
+    """Row `names.smtp_utf8_mailbox`: RFC 9598 sec. 3 (the otherName) and sec. 6 (the constraint)."""
+    cert = certificate(
+        dn("leaf"),
+        dn("ca"),
+        [_alt(_mailbox_san("学生@elementary.school.example.com"))],
+    )
+    (name,) = parse_subject_alt_name(cert.extension("2.5.29.17")) or ()
+    assert (name.kind, name.value) == ("SmtpUTF8Mailbox", "学生@elementary.school.example.com")
+    # Figure 1 of RFC 9598: one rfc822Name constraint covers both forms of the address.
+    host = permit("rfc822Name", "elementary.school.example.com")
+    assert check_certificate(cert, host, final=True) == ()
+    assert [
+        v.reason for v in check_certificate(cert, permit("rfc822Name", "example.org"), final=True)
+    ] == ["not_permitted"]
+    assert [
+        v.reason
+        for v in check_certificate(cert, exclude("rfc822Name", ".school.example.com"), final=True)
+    ] == ["excluded"]
+    # Figure 1 (2): the domain is an A-label, compared octet for octet after lowercasing.
+    assert holds(
+        "SmtpUTF8Mailbox",
+        "医生@XN--PSS25C.example.com",
+        permit("rfc822Name", "xn--pss25c.example.com"),
+    )
+    # A dNSName constraint says nothing about a mailbox.
+    assert holds("SmtpUTF8Mailbox", "学@a.example.com", permit("dNSName", "other.example"))
+    # A mailbox constraint is still refused (RFC 9549 sec. 2.2), whichever form meets it.
+    with pytest.raises(UnsupportedConstraint, match="mailbox"):
+        holds("SmtpUTF8Mailbox", "学@a.example.com", permit("rfc822Name", "学@a.example.com"))
+
+
+def test_a_malformed_smtp_utf8_mailbox_is_refused_and_another_other_name_stays_opaque():
+    def read(*names: x509.GeneralName):
+        cert = certificate(dn("leaf"), dn("ca"), [_alt(*names)])
+        return parse_subject_alt_name(cert.extension("2.5.29.17"))
+
+    for bad in (
+        "﻿学@a.example.com",  # a byte order mark (sec. 3)
+        "学@例え.example.com",  # a U-label domain (sec. 3)
+        "学",  # no domain
+        "@a.example.com",  # no local part
+    ):
+        with pytest.raises(MalformedExtension):
+            read(_mailbox_san(bad))
+    other = read(_mailbox_san("x@y", type_id="1.3.6.1.4.1.99999.1"))
+    assert other is not None
+    assert other[0].kind == "otherName"
+    # The type-id is the only thing that makes it a mailbox: an unconstrained other form is fine.
+    assert holds("otherName", b"", NameConstraints())
+
+
 def test_check_certificate_checks_subject_and_every_alternative_name():
     constraints = permit("dNSName", "example.com")
     ok = certificate(dn("leaf"), dn("ca"), [_alt(x509.DNSName("a.example.com"))])

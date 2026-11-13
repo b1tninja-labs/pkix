@@ -225,6 +225,13 @@ class RevocationAnswer:
 
     status: RevocationStatus
     reason: str
+    #: For "revoked": the CRLReason code of the entry that decided it (RFC 5280 section 5.3.1), 0
+    #: when the entry has no reason code extension (step (i)(2)). None for every other status.
+    reason_code: int | None = None
+    #: For "revoked": the entry's revocationDate (section 5.3 "CRL Entry"). None otherwise.
+    revocation_date: _dt.datetime | None = None
+    #: For "revoked": the entry came from a delta CRL (step (i)) and not the complete CRL.
+    on_delta: bool = False
 
 
 type RevocationChecker = Callable[[RevocationRequest], RevocationAnswer]
@@ -522,6 +529,15 @@ class CrlChecker:
     * (j), (k), (l): the complete CRL is searched (entries attributed by section 5.3.3's
       certificateIssuer rule), removeFromCRL is UNREVOKED, and the mask grows.
 
+    `explicit_deltas=True` is the caller's statement that the delta CRLs it passed are the ones
+    to use: with `use_deltas` set, steps (c), (h) and (i) then run for every complete CRL whether or
+    not the certificate or the CRL carries a freshest CRL extension. Section 6.3.3 (a) only says
+    where a delta CRL is to be *obtained* from when a cache is stale ("If use-deltas is set and
+    either the certificate or the CRL contains the freshest CRL extension"); steps (c), (h) and (i)
+    are conditioned on use-deltas alone. The default stays the section 6.3.3 (a) reading, so a CRL
+    set that nothing points a delta at is not changed by one that happens to be present.
+    `explicit_deltas` has no effect with `use_deltas=False`.
+
     Section 5.2's rule that a CRL with a critical extension the application cannot process "MUST
     NOT" be used, and section 5.3's for entries, take a CRL out of consideration. When the mask
     does not reach all-reasons and nothing revoked the certificate, the answer is UNDETERMINED,
@@ -541,6 +557,7 @@ class CrlChecker:
         certificates: Iterable[bytes | asn1core.Certificate] = (),
         policy: sigwire.verify.Policy = sigwire.verify.DEFAULT,
         use_deltas: bool = True,
+        explicit_deltas: bool = False,
     ) -> None:
         parsed: list[asn1core.Crl] = []
         unreadable: list[str] = []
@@ -569,6 +586,7 @@ class CrlChecker:
         self.certificates = tuple(pool)
         self.policy = policy
         self.use_deltas = use_deltas
+        self.explicit_deltas = explicit_deltas
         self._facts = tuple(_facts(crl) for crl in parsed)
         #: CRLs whose signer's path is being validated, each with the key it is provisionally
         #: verified under (see `_child`).
@@ -591,6 +609,7 @@ class CrlChecker:
         child.certificates = self.certificates
         child.policy = self.policy
         child.use_deltas = self.use_deltas
+        child.explicit_deltas = self.explicit_deltas
         child._facts = self._facts
         child._active = {**self._active, crl.raw: provisional}
         child._depth = self._depth + 1
@@ -622,10 +641,14 @@ class CrlChecker:
                     continue
                 if outcome.entry is not None:
                     where = "delta CRL" if outcome.on_delta else "CRL"
+                    entry = outcome.entry
                     return RevocationAnswer(
                         "revoked",
                         f"serial {certificate.serial} is on the {where} of thisUpdate "
-                        f"{outcome.detail}, reason {outcome.entry.reason_name}",
+                        f"{outcome.detail}, reason {entry.reason_name}",
+                        reason_code=0 if entry.reason is None else entry.reason,
+                        revocation_date=entry.revocation_date,
+                        on_delta=outcome.on_delta,
                     )
                 reasons_mask |= outcome.interim
                 covered.append(outcome.detail)
@@ -708,7 +731,11 @@ class CrlChecker:
             return signer
         # (c), (h), (i)
         delta: _CrlFacts | None = None
-        wants_delta = facts.freshest or certificate.extension(FRESHEST_CRL) is not None
+        wants_delta = (
+            self.explicit_deltas
+            or facts.freshest
+            or certificate.extension(FRESHEST_CRL) is not None
+        )
         if self.use_deltas and wants_delta:
             delta = self._delta_for(facts, signer, request)
         entry = None if delta is None else _entry_for(delta, certificate)

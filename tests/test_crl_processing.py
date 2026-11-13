@@ -22,7 +22,7 @@ from cryptography.hazmat.primitives.serialization import Encoding
 
 from pkix.anchors import load_anchor
 from pkix.result import PathInputs, PathResult, path_walk
-from pkix.revocation import ALL_REASONS, CrlChecker
+from pkix.revocation import ALL_REASONS, CrlChecker, RevocationRequest
 
 AT = datetime.datetime(2025, 6, 1, tzinfo=datetime.UTC)
 START = datetime.datetime(2024, 1, 1)
@@ -147,8 +147,14 @@ def _walk(
     *,
     certificates: Sequence[bytes] = (),
     use_deltas: bool = True,
+    explicit_deltas: bool = False,
 ) -> PathResult:
-    checker = CrlChecker([ROOT_CRL, *crls], certificates=[CA, *certificates], use_deltas=use_deltas)
+    checker = CrlChecker(
+        [ROOT_CRL, *crls],
+        certificates=[CA, *certificates],
+        use_deltas=use_deltas,
+        explicit_deltas=explicit_deltas,
+    )
     return path_walk([leaf, CA], ANCHOR, AT, PathInputs(revocation=checker))
 
 
@@ -324,6 +330,93 @@ def test_a_delta_crl_is_merged_with_the_complete_crl_it_updates():
     assert _walk(leaf, [complete, too_new]).valid
     # use-deltas unset (section 6.1.1 input of section 6.3.3): the delta is not consulted.
     assert _walk(leaf, [complete, revoking], use_deltas=False).valid
+
+
+def test_explicit_deltas_reads_a_delta_nothing_points_at():
+    """Row `revocation.crl_explicit_delta`: RFC 5280 sec. 6.3.3 (c), (h), (i) are conditioned on
+    use-deltas alone; only the *obtaining* of step (a) mentions the freshest CRL extension."""
+    leaf = _leaf()  # no FreshestCRL on the certificate...
+    complete = _crl("CA", CA_KEY, number=10)  # ...nor on the CRL
+    revoking = _delta(10, 11, [(100, x509.ReasonFlags.key_compromise)])
+    assert _walk(leaf, [complete, revoking]).valid  # default: the delta is left unread
+    answer = _leaf_answer(_walk(leaf, [complete, revoking], explicit_deltas=True))
+    assert answer.startswith("failed: revoked")
+    assert "delta CRL" in answer
+    # The delta still has to combine with the complete CRL (sec. 5.2.4 (c)) and be current.
+    too_new = _delta(12, 13, [(100, x509.ReasonFlags.key_compromise)])
+    assert _walk(leaf, [complete, too_new], explicit_deltas=True).valid
+    # use-deltas unset wins over explicit_deltas.
+    assert _walk(leaf, [complete, revoking], use_deltas=False, explicit_deltas=True).valid
+    # A delta that releases a held certificate is applied the same way.
+    held = _crl("CA", CA_KEY, revoked=[(100, x509.ReasonFlags.certificate_hold, ())], number=10)
+    released = _delta(10, 11, [(100, x509.ReasonFlags.remove_from_crl)])
+    assert "certificateHold" in _leaf_answer(_walk(leaf, [held, released]))
+    assert _walk(leaf, [held, released], explicit_deltas=True).valid
+
+
+def _answer(
+    leaf: bytes, crls: Sequence[bytes], *, explicit_deltas: bool = False, serial: int = 100
+):
+    certificate = asn1core.parse_certificate(leaf)
+    ca = asn1core.parse_certificate(CA)
+    checker = CrlChecker([ROOT_CRL, *crls], certificates=[CA], explicit_deltas=explicit_deltas)
+    return checker(
+        RevocationRequest(
+            certificate=certificate,
+            issuer_name=ca.subject,
+            issuer_spki=ca.subject_public_key_info,
+            issuer_certificate=ca,
+            at=AT,
+            index=2,
+            anchor=ANCHOR,
+        )
+    )
+
+
+def test_a_revoked_answer_carries_reason_code_date_and_origin():
+    """Row `revocation.answer_details`: the structured fields of step (i)/(j), RFC 5280 5.3.1."""
+    leaf = _leaf(extensions=[_freshest()])
+    complete = _crl(
+        "CA",
+        CA_KEY,
+        revoked=[(100, x509.ReasonFlags.superseded, ())],
+        extensions=[_freshest()],
+        number=10,
+    )
+    answer = _answer(leaf, [complete])
+    assert (answer.status, answer.reason_code, answer.on_delta) == ("revoked", 4, False)
+    assert answer.revocation_date == datetime.datetime(2025, 2, 1, tzinfo=datetime.UTC)
+    delta = _delta(10, 11, [(100, x509.ReasonFlags.key_compromise)])
+    answer = _answer(leaf, [complete, delta])
+    assert (answer.status, answer.reason_code, answer.on_delta) == ("revoked", 1, True)
+    # No reason code extension: step (i)(2) says unspecified, which is 0, and not None.
+    bare = _crl("CA", CA_KEY, revoked=[(100, None, ())])
+    answer = _answer(_leaf(), [bare])
+    assert (answer.status, answer.reason_code) == ("revoked", 0)
+    # Every other status leaves the fields unset.
+    good = _answer(_leaf(serial=101), [bare])
+    assert good.status == "good"
+    assert (good.reason_code, good.revocation_date, good.on_delta) == (None, None, False)
+
+
+def test_an_indirect_crl_answer_reads_the_entry_of_its_own_certificate_issuer():
+    """Two entries for one serial, told apart by certificateIssuer (sec. 5.3.3): the answer's
+    reason is the matching one, which revokekit could not read back for itself."""
+    other = x509.CertificateIssuer([x509.DirectoryName(dn("Elsewhere"))])
+    crl = _crl(
+        "CA",
+        CA_KEY,
+        revoked=[
+            (100, x509.ReasonFlags.key_compromise, [(other, True)]),
+            (
+                100,
+                x509.ReasonFlags.superseded,
+                [(x509.CertificateIssuer([x509.DirectoryName(dn("CA"))]), True)],
+            ),
+        ],
+    )
+    answer = _answer(_leaf(), [crl])
+    assert (answer.status, answer.reason_code) == ("revoked", 4)
 
 
 def test_a_delta_crl_takes_a_certificate_off_hold():

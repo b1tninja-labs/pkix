@@ -179,6 +179,13 @@ def _collect_qualifiers(graph: _Graph, depth: int, node: _Node) -> tuple[bytes, 
     return tuple(sorted(found))
 
 
+def _over(size: int, limit: int, i: int) -> str:
+    return (
+        f"certificate {i}: the policy graph has {size} nodes, over the limit of {limit} "
+        "(RFC 9618 sec. 6.3)"
+    )
+
+
 def _failure(reason: str, explicit_policy: int) -> PolicyOutcome:
     return PolicyOutcome(False, reason, explicit_policy, {}, {}, 0)
 
@@ -190,12 +197,21 @@ def resolve(
     initial_explicit_policy: bool = False,
     initial_policy_mapping_inhibit: bool = False,
     initial_inhibit_any_policy: bool = False,
+    max_depth: int | None = None,
+    max_nodes: int | None = None,
 ) -> PolicyOutcome:
     """Policy processing of one path, RFC 5280 sec. 6.1.2 to 6.1.5 as replaced by RFC 9618 sec. 5.
 
     `chain` is target first and excludes the trust anchor. `expected` is the user-initial-policy-set
     as OIDs in dotted form, or None for any-policy. The three keyword flags are the inputs of section
     6.1.1(f), (g) and (h): each sets its counter to 0 instead of n+1.
+
+    `max_depth` and `max_nodes` are the fallback bounds of RFC 9618 sections 6.2 and 6.3, off by
+    default: the graph already grows linearly in the certificates (section 4), so they are defence
+    in depth for an application that wants a ceiling. A path with more than `max_depth`
+    certificates, or whose graph holds more than `max_nodes` nodes at any step, is rejected
+    ("rejecting the certification path if this limit is reached", section 6.3) as a failed outcome
+    that names the limit; the bounds are the caller's, the document gives no number.
 
     A policy failure is an outcome, not an exception: `succeeded` is False and `reason` says which
     step failed. A certificate whose policy extensions are not well-formed raises
@@ -207,6 +223,10 @@ def resolve(
     n = len(certificates)
     if n == 0:
         raise ValueError("a path has at least one certificate: RFC 5280 sec. 6.1.1(a)")
+    if max_depth is not None and n > max_depth:
+        return _failure(
+            f"the path has {n} certificates, over the limit of {max_depth} (RFC 9618 sec. 6.2)", 0
+        )
     explicit_policy = 0 if initial_explicit_policy else n + 1
     policy_mapping = 0 if initial_policy_mapping_inhibit else n + 1
     inhibit_any_policy = 0 if initial_inhibit_any_policy else n + 1
@@ -220,6 +240,8 @@ def resolve(
         if graph is not None:
             if policies is not None:
                 _process_policies(graph, i, policies, inhibit_any_policy, self_issued, final)
+                if max_nodes is not None and graph.size() > max_nodes:
+                    return _failure(_over(graph.size(), max_nodes, i), explicit_policy)
                 if graph.empty_at(i):
                     graph = None  # no valid policies remain, so the graph is NULL
             else:
@@ -250,6 +272,8 @@ def resolve(
                     if info.policy == ANY_POLICY:
                         any_qualifiers = frozenset(info.qualifiers)
                 _apply_mappings(graph, i, mappings, policy_mapping, any_qualifiers)
+                if max_nodes is not None and graph.size() > max_nodes:
+                    return _failure(_over(graph.size(), max_nodes, i), explicit_policy)
                 if graph.empty_at(i):
                     graph = None
         if not self_issued:  # (h)

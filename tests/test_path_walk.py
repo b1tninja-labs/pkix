@@ -92,6 +92,25 @@ def test_a_well_formed_path_validates_and_records_every_step():
     assert result.revocation_checked is False
 
 
+def test_the_policy_limits_of_rfc_9618_sec_6_are_inputs_of_the_walk():
+    """Row `policy.limits`: `PathInputs.policy_max_depth` and `policy_max_nodes` fail the policy step."""
+    assert path_walk(chain(), ANCHOR, AT, PathInputs(policy_max_depth=2)).valid
+    shallow = path_walk(chain(), ANCHOR, AT, PathInputs(policy_max_depth=1))
+    assert shallow.status == "invalid"
+    assert failed_step(shallow) == "6.1.3(d)-6.1.5(g) policy (RFC 9618)"
+    assert shallow.failure is not None
+    assert "6.2" in shallow.failure.detail
+    # Both certificates assert a policy, so the graph has nodes: 2 below the anyPolicy root.
+    asserting = chain(
+        ca_ext=[ca(), (CA_USAGE, True), policies(POLICY)], leaf_ext=[policies(POLICY)]
+    )
+    assert path_walk(asserting, ANCHOR, AT, PathInputs(policy_max_nodes=50)).valid
+    tight = path_walk(asserting, ANCHOR, AT, PathInputs(policy_max_nodes=1))
+    assert tight.status == "invalid"
+    assert tight.failure is not None
+    assert "6.3" in tight.failure.detail
+
+
 def test_an_intermediate_without_basic_constraints_ca_is_rejected():
     result = path_walk(chain(ca_ext=[(CA_USAGE, True)]), ANCHOR, AT)
     assert result.status == "invalid"

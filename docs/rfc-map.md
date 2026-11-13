@@ -32,7 +32,7 @@ RFC 9598 and RFC 9549, which replace them. Neither obsolete RFC is a source for 
 | RFC 5280 | updated by RFC 6818, 9549, 9598, 9608, 9618, 9925, 10007 | 6: 3579, 5802, 5938, 6414, 7658, 7661 (none on section 4.1.1, 4.1.2.5 or 6.1.3) | the profile and the section 6 algorithm |
 | RFC 6818 | RFC 5280 | 1 | clarifications on self-signed certificates and trust anchors, read with section 6.1.1(d) |
 | RFC 9549 | RFC 5280, obsoletes RFC 8399 | 0 (1 on file) | name constraints (section 4.2.1.10), IDNs in GeneralName and DNs (sections 7.2, 7.3), internationalised email (section 7.5): row `names.constraint_holds()` and `names.idn_email` |
-| RFC 9598 | RFC 5280, obsoletes RFC 8398 | 0 | a new otherName form for internationalised email in the subject and issuer alternative names: row `names.idn_email` |
+| RFC 9598 | RFC 5280, obsoletes RFC 8398 | 0 | a new otherName form for internationalised email in the subject and issuer alternative names (SmtpUTF8Mailbox, sec. 3; name constraints, sec. 6): rows `names.smtp_utf8_mailbox` and `names.idn_email` |
 | RFC 9608 | RFC 5280 | 0 (1 on file) | section 4: step (a)(3) of section 6.1.3 is skipped when noRevAvail or ocsp-nocheck is present: row `revocation.no_rev_avail` |
 | RFC 9618 | RFC 5280 | 0 (1 on file) | sections 5.1 to 5.6 replace the policy tree of sections 6.1 to 6.1.6 with a policy graph, because the tree grows exponentially: row `policy.graph`, and `policy.resolve()` implements the graph and not the 5280 text. Section 6 lists fallback mitigations for implementations that keep the tree |
 | RFC 9925 | RFC 5280 | 0 | section 4: id-alg-unsigned (1.3.6.1.5.5.7.6.36) MUST be rejected whenever a signature is verified: row `validity.unsigned_certificate` |

@@ -20,6 +20,12 @@ Decisions where the text is silent or was changed, each also in docs/rfc-map.md:
 * dNSName constraint with a leading period (".example.com") is not in section 4.2.1.10's DNS
   paragraph, which says "host.example.com" and "adding zero or more labels". It is read the way the
   same section reads URI and mailbox constraints: one or more labels, the bare host excluded.
+* RFC 9598 section 3 SmtpUTF8Mailbox (otherName, id-on 9) is read as the kind "SmtpUTF8Mailbox" and
+  compared under the rfc822Name constraints, as section 6 says: the local part and "@" are stripped
+  and the domain compared as for rfc822Name. The domain must be ASCII, since "labels that include
+  non-ASCII characters MUST be stored in A-label (rather than U-label) form", and the value must
+  carry no byte order mark. Whether the local part is ASCII (when rfc822Name was the right form) is
+  the issuer's obligation and is not checked. Any other otherName stays opaque.
 * DNS comparison is a case-insensitive exact match label by label (RFC 9549 section 2.3). A name
   that is not ASCII is not an A-label and is refused as malformed.
 """
@@ -63,8 +69,21 @@ _KINDS = {
     8: "registeredID",
 }
 _SUPPORTED = frozenset(
-    {"rfc822Name", "dNSName", "directoryName", "uniformResourceIdentifier", "iPAddress"}
+    {
+        "rfc822Name",
+        "SmtpUTF8Mailbox",
+        "dNSName",
+        "directoryName",
+        "uniformResourceIdentifier",
+        "iPAddress",
+    }
 )
+#: RFC 9598 section 3: id-on-SmtpUTF8Mailbox ::= { id-on 9 }, id-on being 1.3.6.1.5.5.7.8.
+ID_ON_SMTP_UTF8_MAILBOX = (1, 3, 6, 1, 5, 5, 7, 8, 9)
+_UTF8_STRING = 12
+#: The constraint list a name is compared against: SmtpUTF8Mailbox has no constraint form of its
+#: own, RFC 9598 section 6 applies the rfc822Name constraints to it.
+_CONSTRAINT_KIND = {"SmtpUTF8Mailbox": "rfc822Name"}
 
 type NameValue = str | bytes | asn1core.Name
 
@@ -73,7 +92,8 @@ type NameValue = str | bytes | asn1core.Name
 class GeneralName:
     """One GeneralName: its choice by name and its value.
 
-    `value` is `str` for rfc822Name, dNSName, uniformResourceIdentifier and registeredID (dotted),
+    `value` is `str` for rfc822Name, SmtpUTF8Mailbox (an otherName, RFC 9598), dNSName,
+    uniformResourceIdentifier and registeredID (dotted),
     an `asn1core.Name` for directoryName, and the content octets for iPAddress; for the forms with
     no comparison here it is the whole encoding.
     """
@@ -156,7 +176,47 @@ def parse_general_name(node: asn1core.Node) -> GeneralName:
         if node.payload is None:
             raise MalformedExtension("registeredID is not an OBJECT IDENTIFIER")
         return GeneralName(kind, ".".join(str(a) for a in asn1core.decode_oid(node.payload)))
+    if kind == "otherName":
+        mailbox = _smtp_utf8_mailbox(node)
+        if mailbox is not None:
+            return GeneralName("SmtpUTF8Mailbox", mailbox)
     return GeneralName(kind, node.raw)
+
+
+def _smtp_utf8_mailbox(node: asn1core.Node) -> str | None:
+    """RFC 9598 section 3's SmtpUTF8Mailbox out of an otherName, or None for another type-id."""
+    if not node.constructed or len(node.children) != 2:
+        return None  # not a well-formed otherName: kept opaque like every unevaluated form
+    type_id, wrapped = node.children
+    if (
+        not type_id.tag.is_universal()
+        or type_id.tag.number != 6
+        or type_id.payload is None
+        or asn1core.decode_oid(type_id.payload) != ID_ON_SMTP_UTF8_MAILBOX
+    ):
+        return None
+    what = "SmtpUTF8Mailbox"
+    if (
+        wrapped.tag.tag_class is not asn1core.TagClass.context
+        or wrapped.tag.number != 0
+        or len(wrapped.children) != 1
+    ):
+        raise MalformedExtension(f"{what} is an explicitly tagged UTF8String")
+    text = wrapped.children[0]
+    if not text.tag.is_universal() or text.tag.number != _UTF8_STRING or text.payload is None:
+        raise MalformedExtension(f"{what} is a UTF8String")
+    try:
+        value = text.payload.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise MalformedExtension(f"{what} is not UTF-8: {exc}") from exc
+    if value.startswith("\ufeff"):
+        raise MalformedExtension(f"{what} carries a byte order mark (RFC 9598 sec. 3)")
+    local, at, host = value.rpartition("@")
+    if not at or not local or not host:
+        raise MalformedExtension(f"{what} {value!r} is not local-part@domain")
+    if not host.isascii():
+        raise MalformedExtension(f"{what} domain {host!r} is not in A-label form (RFC 9598 sec. 3)")
+    return value
 
 
 def _sequence(ext: asn1core.Extension, what: str) -> asn1core.Node:
@@ -357,7 +417,7 @@ def _within(name: GeneralName, subtree: Subtree) -> bool:
         raise TypeError(f"{kind} names and subtrees hold strings")
     if kind == "dNSName":
         return _dns_within(value, base)
-    if kind == "rfc822Name":
+    if kind in ("rfc822Name", "SmtpUTF8Mailbox"):
         if "@" in base:
             raise UnsupportedConstraint(
                 "a mailbox name constraint (RFC 9549 sec. 2.2 removed them from RFC 5280 sec. 4.2.1.10)"
@@ -389,7 +449,7 @@ def constraint_holds(
     """
     if at_issuance:
         return True
-    kind = name.kind
+    kind = _CONSTRAINT_KIND.get(name.kind, name.kind)
     permitted = constraints.permitted.get(kind)
     excluded = constraints.excluded.get(kind, ())
     if permitted is None and not excluded:
@@ -448,6 +508,9 @@ def check_certificate(
     for name in certificate_names(certificate, constraints):
         if constraint_holds(name, constraints):
             continue
-        in_excluded = any(_within(name, s) for s in constraints.excluded.get(name.kind, ()))
+        in_excluded = any(
+            _within(name, s)
+            for s in constraints.excluded.get(_CONSTRAINT_KIND.get(name.kind, name.kind), ())
+        )
         found.append(NameViolation(name, "excluded" if in_excluded else "not_permitted"))
     return tuple(found)

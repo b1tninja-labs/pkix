@@ -6,6 +6,10 @@ The format follows Keep a Changelog, and this project adheres to Semantic Versio
 
 ### Added
 
+- `CrlChecker(explicit_deltas=True)` and `RevocationAnswer.reason_code`, `revocation_date` and `on_delta`
+  (rows `revocation.crl_explicit_delta`, `revocation.answer_details`), proposed by revokekit.
+- RFC 9598 SmtpUTF8Mailbox in `names` (row `names.smtp_utf8_mailbox`); RFC 9618 sec. 6.2 and 6.3 limits
+  (`resolve(max_depth=, max_nodes=)`, `PathInputs.policy_max_depth` and `policy_max_nodes`).
 - `validity.check_validity()`: RFC 5280 section 6.1.3 step (a)(2), inclusive of both ends, with an injected
   clock and a refusal of naive datetimes.
 - `validity.check_signature()`: step (a)(1) for RSA PKCS #1 v1.5, RSA-PSS, ECDSA (P-256, P-384, P-521) and

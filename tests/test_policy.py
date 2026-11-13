@@ -176,6 +176,42 @@ def test_inhibit_any_policy_extension_in_a_ca():
     assert not resolve(chain, {A}, initial_explicit_policy=True).succeeded
 
 
+def test_a_self_issued_ca_with_any_policy_expands_even_when_any_policy_is_inhibited():
+    """Row `policy.self_issued_any_policy`: RFC 9618 sec. 5.3(d)(2)(b), "i<n and the certificate is
+    self-issued". inhibit_anyPolicy is 0 from the start, so (a) cannot apply and only (b) can carry
+    the anyPolicy of the middle certificate over to A."""
+
+    def build(middle_issuer: str):
+        leaf = certificate(dn("leaf"), dn("mid"), [pol(A)])
+        middle = certificate(dn("mid"), dn(middle_issuer), [pol(ANY)])
+        root_ca = certificate(dn("mid-ca"), dn("root"), [pol(A)])
+        # Target first; the path is root_ca (1), middle (2), leaf (3), n = 3.
+        return [leaf, middle, root_ca]
+
+    flags = {"initial_inhibit_any_policy": True, "initial_explicit_policy": True}
+    self_issued = build("mid")
+    assert self_issued[1].self_issued
+    outcome = resolve(self_issued, {A}, **flags)
+    assert outcome.succeeded, outcome.reason
+    assert A in outcome.user_constrained
+    # The same path with a middle certificate that is not self-issued gets no such expansion: its
+    # level is empty, the graph is NULL, and explicit_policy is 0.
+    other = build("elsewhere")
+    assert not other[1].self_issued
+    assert not resolve(other, {A}, **flags).succeeded
+
+
+def test_a_self_issued_final_certificate_with_any_policy_does_not_expand():
+    """The same sentence says i<n: for the target certificate (i = n) only inhibit_anyPolicy > 0
+    permits (d)(2), so with it at 0 the anyPolicy of a self-issued target matches nothing."""
+    target = certificate(dn("leaf"), dn("leaf"), [pol(ANY)])
+    assert target.self_issued
+    ca = certificate(dn("ca"), dn("root"), [pol(A)])
+    flags = {"initial_inhibit_any_policy": True, "initial_explicit_policy": True}
+    assert not resolve([target, ca], {A}, **flags).succeeded
+    assert resolve([target, ca], {A}, initial_explicit_policy=True).succeeded
+
+
 def test_rfc_9618_figure_4_unmatched_leaf_policy_is_dropped():
     """RFC 9618 sec. 5.3 Figure 4: Red maps to Gold and White; the leaf asserts Gold and Silver.
     Gold matches the mapped expected set; Silver matches nothing and is dropped."""
@@ -206,6 +242,25 @@ def test_the_exponential_example_of_rfc_9618_sec_3_2_stays_linear():
     assert set(outcome.authority_constrained) == {A, B}
     assert outcome.graph_nodes <= 2 * 61 + 1
     assert elapsed < 5
+
+
+def test_the_depth_and_node_limits_of_rfc_9618_sec_6_reject_a_path_that_reaches_them():
+    """Row `policy.limits`: sections 6.2 and 6.3 as opt-in ceilings. A limit that is not reached
+    changes nothing; one that is reached fails the path and names itself."""
+    intermediate = [pol(A, B), mapping((A, A), (A, B), (B, A), (B, B))]
+    chain = path([pol(A, B)], *[intermediate] * 10)  # 11 certificates
+    open_ended = resolve(chain)
+    assert open_ended.succeeded
+    nodes = open_ended.graph_nodes
+    assert resolve(chain, max_depth=11, max_nodes=nodes + 100).succeeded
+    too_deep = resolve(chain, max_depth=10)
+    assert not too_deep.succeeded
+    assert "11 certificates" in (too_deep.reason or "")
+    assert "6.2" in (too_deep.reason or "")
+    too_big = resolve(chain, max_nodes=5)
+    assert not too_big.succeeded
+    assert "over the limit of 5" in (too_big.reason or "")
+    assert "6.3" in (too_big.reason or "")
 
 
 def test_qualifiers_are_collected_across_the_path():
