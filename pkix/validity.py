@@ -36,6 +36,7 @@ __all__ = [
     "ValidityResult",
     "check_signature",
     "check_signature_with_spki",
+    "check_signed_data",
     "check_validity",
 ]
 
@@ -173,21 +174,45 @@ def check_signature_with_spki(
     and section 6.1.3 step (a)(1) only ever needs the key, so a trust anchor verifies through here.
     """
     certificate = _certificate(cert, "cert")
+    return check_signed_data(
+        certificate.tbs_certificate,
+        certificate.signature_algorithm_raw,
+        _inner_signature_algorithm(certificate),
+        certificate.signature_value,
+        spki,
+        policy=policy,
+        what="certificate",
+    )
 
+
+def check_signed_data(
+    signed: bytes,
+    outer_algorithm: bytes,
+    inner_algorithm: bytes,
+    signature: bytes,
+    spki: bytes,
+    *,
+    policy: sigwire.verify.Policy = sigwire.verify.DEFAULT,
+    what: str = "certificate",
+) -> SignatureResult:
+    """The signature check shared by certificates (RFC 5280 section 4.1.1) and CRLs (section 5.1.1).
+
+    Both are `SEQUENCE { tbs, signatureAlgorithm, signatureValue }` where the algorithm repeats the
+    one inside the signed part, and both say the two "MUST contain the same algorithm identifier".
+    """
     # RFC 5280 section 4.1.1.2: the outer field "MUST contain the same algorithm identifier as the
     # signature field in the sequence tbsCertificate". Byte equality is the strict reading; a CA
     # that spells NULL parameters differently in the two places is refused rather than excused.
-    if certificate.signature_algorithm_raw != _inner_signature_algorithm(certificate):
+    if outer_algorithm != inner_algorithm:
         raise SignatureInvalid(
-            "signatureAlgorithm differs from TBSCertificate.signature (RFC 5280 section 4.1.1.2)"
+            f"signatureAlgorithm differs from the signature field inside the {what} "
+            "(RFC 5280 section 4.1.1.2)"
         )
-    scheme = alg.decode_signature_algorithm(certificate.signature_algorithm_raw)
+    scheme = alg.decode_signature_algorithm(outer_algorithm)
     key = alg.decode_public_key(spki)
 
     try:
-        valid, description = _verify(
-            scheme, key, certificate.tbs_certificate, certificate.signature_value, policy
-        )
+        valid, description = _verify(scheme, key, signed, signature, policy)
     except sigwire.verify.PolicyRefusal as exc:
         raise SignaturePolicyRefused(str(exc)) from exc
     except sigwire.verify.Unsupported as exc:

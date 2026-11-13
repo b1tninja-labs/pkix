@@ -89,6 +89,11 @@ a project that does not exist, which is the failure this file exists to prevent.
 on 2026-11-13: the commit that deleted `anchors`' last `cryptography` import moved it to the dev
 group and added `sigwire[verify]`, and `tests/test_anchors_asn1core.py` fails if either half drifts.
 
+The dev pin on `cryptography` is a floor at the first release with the API the tests use, not at the
+newest release: `cryptography>=46.0.7`, the installed and only tested version, the same floor
+`sigwire[verify]` declares (PORTFOLIO.md section 9 item 15). It read `>=50.0.2` until 2026-11-13,
+which named a release nothing here had run against.
+
 ### What could not be cited, and is therefore a decision rather than a requirement
 
 No reachable source in this environment carries SEC1 (SECG v2.0) §2.3.3, X9.62, or FIPS 186-3 /

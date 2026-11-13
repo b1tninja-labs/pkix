@@ -52,6 +52,15 @@ Standard, 2025-10, 2 verified errata; row `algorithms.ml_dsa`), RFC 8692 (SHAKE 
 updates RFC 3279; not planned) and RFC 9295 (key usage bits for Ed25519 and Ed448; read with
 `chain.ca_constraints`). Their statuses above come from `info`, and no section of them is cited.
 
+Conformance corpus, outside the RFC series: NIST PKITS 1.0.1, "Public Key Interoperability Test Suite
+Certification Path Validation", NIST CSRC (`https://csrc.nist.gov/projects/pki-testing`). Data
+`PKITS_data.zip`, 3,052,513 octets, sha256 `592f66030d2eff80fced7ad022e197d96b7ee4ccce7da9df9c9b2007b1665665`;
+document `PKITS.pdf`, 5,027,216 octets, sha256
+`506913f4b727704ee1b52b17aa472dc6fbcf01e41e7ad88ba505f29c1a74d9ea`; both read 2026-11-13. Written against
+RFC 3280 (which RFC 5280 obsoletes) and X.509; it predates RFC 9549 and RFC 9618. Terms not established,
+so the corpus lives in a cache (`tools/fetch_pkits.py`) and not in the tree. Result on 2026-11-13:
+247 cases, 178 pass, 69 not applicable, 0 fail (`tests/test_pkits.py`).
+
 Signature arithmetic is `sigwire[verify]`'s, and the primary sources for it beyond the RFC series (FIPS 186-5,
 SP 800-186) are named in sigwire[verify]'s own `docs/rfc-map.md`, not copied here.
 

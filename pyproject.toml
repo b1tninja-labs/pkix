@@ -56,7 +56,9 @@ dev = [
   "ruff",
   "mypy",
   # dev-only: mints synthetic certificates (pkix never signs) and is the differential oracle.
-  "cryptography>=50.0.2",
+  # Floored at 46.0.7, the installed and only tested release, as sigwire[verify] floors it
+  # (PORTFOLIO.md section 9 item 15: the first version with the API used, not the newest).
+  "cryptography>=46.0.7",
   # tools/check_dist.py cannot assert a wheel contains what the docs promise without
   # first being able to build one, so the build dependency belongs in the dev group.
   "build",

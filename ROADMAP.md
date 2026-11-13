@@ -27,27 +27,42 @@ drift apart within one release, and the document becomes useless exactly when it
 | `validity.unsigned_certificate` | RFC 9925 sec. 3.1, 4 | `[ok]` | `tests/test_signatures.py::test_an_unsigned_certificate_is_refused_as_a_path_signature` | M2 |
 | `algorithms.oid_table` | RFC 3279 sec. 2.2; RFC 4055 sec. 5; RFC 5758 sec. 3.2; RFC 8017 erratum 5154 | `[ok]` | `tests/test_signatures.py::test_every_signature_oid_maps_to_the_hash_its_document_names` | M2 |
 | `validity.check_signature()` | RFC 5280 sec. 6.1.3(a)(1), 4.1.1.2, 4.1.1.3; RFC 3279; RFC 4055 sec. 3.1, 5; RFC 5480 sec. 2; RFC 5758 sec. 3.2; RFC 8410 sec. 3, 6; arithmetic by `sigwire[verify]` | `[part]` | `tests/test_signatures.py::test_differential_against_cryptography` | M2 |
-| `algorithms.rehome` | design: `asn1core` owns structure (its `dk.spki-key` row) | `[ ]` | (to be written) | M2 |
+| `algorithms.rehome` | design: `asn1core` owns structure. `asn1core.keys.parse_spki` now exists (uncommitted round-2 work there, 2026-11-13), so `decode_public_key` can move onto it; signeddata and revokekit already left `_algorithms` (revokekit now calls the public `validity.check_signed_data`) | `[ ]` | (to be written) | M2 |
 | `algorithms.ec_compressed` | RFC 5480 sec. 2.2 (compressed points MAY be supported) | `[ ]` | (to be written) | M2 |
 | `algorithms.rsassa_pss_key` | RFC 4055 sec. 3.1, 3.3; RFC 5756; RFC 8017 sec. A.2.3 and erratum 5111 | `[ ]` | (to be written) | M2 |
 | `algorithms.ed448` | RFC 8410 sec. 3; RFC 8032 sec. 5.2 | `[ ]` | (to be written) | M2 |
 | `algorithms.ml_dsa` | RFC 9881 | `[ ]` | (to be written) | M2 |
-| `chain.ca_constraints` | RFC 5280 sec. 6.1.4(k)-(n), 4.2.1.9, 4.2.1.3; RFC 5480 sec. 3 with RFC 8813; RFC 9295 | `[ ]` | (to be written) | M2 |
-| `chain.critical_extensions` | RFC 5280 sec. 4.2, 6.1.4 | `[ ]` | (to be written) | M2 |
-| `chain.issuer_binding` | RFC 5280 sec. 6.1.3(a)(1), (a)(4), 4.2.1.1, 4.2.1.2 | `[ ]` | (to be written) | M2 |
-| `validity.version1_ca` | RFC 5280 sec. 4.2.1.9 (silent on v1); fail closed, see section 5 | `[ ]` | (to be written) | M2 |
-| `names.constraint_holds()` | RFC 5280 sec. 6.1.3(b), (c), 4.2.1.10, 7; RFC 9549 sec. 2.2-2.5 | `[ ]` | `tests/test_obligations.py::constraint_holds` | M3 |
-| `names.idn_email` | RFC 9549 sec. 2.3-2.5 (RFC 8399 is obsolete); RFC 9598 (RFC 8398 is obsolete) | `[ ]` | (to be written) | M3 |
-| `policy.resolve()` | RFC 5280 sec. 6.1.2-6.1.5 as replaced by RFC 9618 sec. 5.1-5.6 | `[ ]` | `tests/test_obligations.py::resolve` | M4 |
-| `policy.graph` | RFC 9618 sec. 4.1, 4.2 and 5.2-5.5: the policy graph, linear in the certificates | `[ ]` | (to be written) | M4 |
+| `algorithms.dsa` | RFC 3279 sec. 2.2.2, 2.3.2, and parameter inheritance of RFC 5280 sec. 6.1.4(e). `sigwire[verify]` refuses DSA by default (PORTFOLIO.md section 9 item 15), so PKITS 4.1.4 and 4.1.5 are not applicable unless a caller opts in | `[ ]` | (to be written) | M2 |
+| `extensions.key_usage_asn1core` | PORTFOLIO.md section 9 item 15: keyUsage read by `asn1core.extensions.parse_key_usage` (X.690 11.2.2 trailing zero bits refused) | `[ok]` | `tests/test_path_walk.py::test_key_usage_is_read_by_asn1core_and_a_trailing_zero_bit_is_refused` | M3 |
+| `chain.ca_constraints` | RFC 5280 sec. 6.1.4(k)-(n), 4.2.1.9, 4.2.1.3; RFC 5480 sec. 3 with RFC 8813; RFC 9295 | `[part]` | `tests/test_path_walk.py::test_path_length_constraint_zero_stops_a_further_ca`; `tests/test_path_walk.py::test_a_key_usage_without_key_cert_sign_is_rejected`; `tests/test_path_walk.py::test_an_intermediate_without_basic_constraints_ca_is_rejected`. Done in `result.path_walk`: (k) cA, (l)-(m) pathLen with the self-issued exemption, (n) keyCertSign. Missing: the RFC 5480/8813/9295 key-usage consistency for EC and EdDSA keys | M2 |
+| `chain.critical_extensions` | RFC 5280 sec. 4.2, 6.1.4(o), 6.1.5(f) | `[ok]` | `tests/test_path_walk.py::test_an_unknown_critical_extension_fails_and_a_non_critical_one_does_not` | M2 |
+| `chain.issuer_binding` | RFC 5280 sec. 6.1.3(a)(1), (a)(4), 4.2.1.1, 4.2.1.2 | `[part]` | `tests/test_path_walk.py::test_an_issuer_that_is_not_the_working_issuer_name_breaks_the_path`. Done: (a)(1) under the working key and (a)(4) by section 7.1 name comparison. Missing: key identifiers (4.2.1.1, 4.2.1.2) as a discovery aid | M2 |
+| `validity.version1_ca` | RFC 5280 sec. 6.1.4(k): a v1 or v2 intermediate "MUST" be verified out of band "or reject"; pkix rejects | `[part]` | Coded in `result._prepare`; no v1 certificate is minted by a test yet (`cryptography` cannot build one) | M2 |
+| `names.constraint_holds()` | RFC 5280 sec. 6.1.3(b), (c), 4.2.1.10, 7; RFC 9549 sec. 2.2-2.5 | `[ok]` | `tests/test_names.py::test_excluded_wins_over_permitted`; `tests/test_names.py::test_intersection_keeps_the_narrower_subtree`; `tests/test_names.py::test_a_constraint_on_an_unevaluated_form_is_refused_not_guessed` | M3 |
+| `names.idn_email` | RFC 9549 sec. 2.3-2.5 (RFC 8399 is obsolete); RFC 9598 (RFC 8398 is obsolete) | `[part]` | `tests/test_names.py::test_a_mailbox_constraint_is_refused_because_rfc_9549_removed_it`. Done: mailbox constraints refused, host part compared case-insensitively, DNS label-by-label. Missing: U-label to A-label conversion of non-ASCII names, SmtpUTF8Mailbox otherName (RFC 9598) | M3 |
+| `policy.resolve()` | RFC 5280 sec. 6.1.2-6.1.5 as replaced by RFC 9618 sec. 5.1-5.6 | `[ok]` | `tests/test_policy.py::test_the_graph_agrees_with_the_rfc_5280_tree_on_random_small_paths` | M4 |
+| `policy.graph` | RFC 9618 sec. 4.1, 4.2 and 5.2-5.5: the policy graph, linear in the certificates | `[ok]` | `tests/test_policy.py::test_the_exponential_example_of_rfc_9618_sec_3_2_stays_linear` | M4 |
 | `policy.limits` | RFC 9618 sec. 6.2, 6.3 (fallback bounds on depth and size; defence in depth once the graph exists) | `[ ]` | (to be written) | M4 |
 | `revocation.status_of()` | RFC 5280 sec. 6.1.3(a)(3), 6.3; RFC 6960 | `[ ]` | `tests/test_obligations.py::status_of` | M5 |
-| `revocation.no_rev_avail` | RFC 9608 sec. 4: step (a)(3) is skipped for noRevAvail or ocsp-nocheck | `[ ]` | (to be written) | M5 |
-| `revocation.crl_issuer_key_usage` | RFC 10007 sec. 4: amended step (f) of RFC 5280 sec. 6.3.3 | `[ ]` | (to be written) | M5 |
-| `revocation.crl_signature` | RFC 5280 sec. 5.1.1, 6.3.3; verify through `validity.check_signature_with_spki` | `[ ]` | (to be written) | M5 |
-| `result.validate()` | RFC 5280 sec. 6 | `[ ]` | `tests/test_obligations.py::validate` | M6 |
+| `revocation.crl_checker` | RFC 5280 sec. 6.3.3 (b)(1), (a)(1), (f) with RFC 10007, (g), (j), (k); sec. 5.2 and 5.3 critical extensions. Fails closed: no usable CRL is UNDETERMINED | `[part]` | `tests/test_path_walk.py::test_a_revoked_leaf_fails_and_an_absent_crl_fails_closed`; `tests/test_path_walk.py::test_a_crl_feature_pkix_does_not_process_is_unsupported_not_good`. Missing: the four rows below | M5 |
+| `revocation.idp` | RFC 5280 sec. 6.3.3(b)(2), (d), (e): issuing distribution point, onlySomeReasons, reasons_mask. Answered "unsupported" today (PKITS 4.14.1-4.14.23, 4.5.3-4.5.8) | `[ ]` | (to be written) | M5 |
+| `revocation.indirect_crl` | RFC 5280 sec. 6.3.3(b)(1) cRLIssuer, sec. 5.3.3 certificateIssuer. "unsupported" today (PKITS 4.14.24-4.14.35) | `[ ]` | (to be written) | M5 |
+| `revocation.separate_crl_key` | RFC 5280 sec. 6.3.3(f): a path for a CRL signer other than the certificate issuer's key, same trust anchor. "unsupported" today (PKITS 4.4.19-4.4.21 and the self-issued key-rollover cases of 4.5, 4.6, 4.9, 4.11, 4.12, 4.13.19) | `[ ]` | (to be written) | M5 |
+| `revocation.delta_crl` | RFC 5280 sec. 5.2.4, 6.3.3(c), (h), (i): merging delta CRLs (use-deltas). Present deltas make the answer "unsupported" today (PKITS 4.15.2-4.15.8) | `[ ]` | (to be written) | M5 |
+| `revocation.no_rev_avail` | RFC 9608 sec. 4: step (a)(3) is skipped for noRevAvail or ocsp-nocheck | `[ok]` | `tests/test_revocation.py::test_no_rev_avail_skips_revocation_checking`; `tests/test_revocation.py::test_no_rev_avail_on_a_ca_is_invalid` | M5 |
+| `revocation.crl_issuer_key_usage` | RFC 10007 sec. 4: amended step (f) of RFC 5280 sec. 6.3.3 | `[ok]` | `tests/test_revocation.py::test_a_v3_crl_issuer_without_key_usage_now_fails` | M5 |
+| `revocation.crl_signature` | RFC 5280 sec. 5.1.1, 6.3.3; verify through `validity.check_signature_with_spki` | `[ok]` | `tests/test_revocation.py::test_a_tampered_crl_fails_its_signature` | M5 |
+| `extensions.decoders` | RFC 5280 sec. 4.2.1.3, 4.2.1.4, 4.2.1.5, 4.2.1.9, 4.2.1.11, 4.2.1.14: basic constraints, key usage, policies, mappings, constraints, inhibitAnyPolicy; `asn1core`'s `dk.named-bits` row would take keyUsage | `[ok]` | `tests/test_revocation.py::test_the_key_usage_bits_are_read_by_name` | M3 |
+| `names.check_certificate()` | RFC 5280 sec. 6.1.3(b), (c), 4.2.1.10 (subject DN, subjectAltName, emailAddress fallback, self-issued exemption) | `[ok]` | `tests/test_names.py::test_self_issued_certificates_are_exempt_unless_final` | M3 |
+| `revocation.skips_revocation()` | RFC 9608 sec. 3, 4 | `[ok]` | `tests/test_revocation.py::test_no_rev_avail_with_an_ocsp_access_method_is_invalid_but_ca_issuers_is_fine` | M5 |
+| `revocation.check_crl_issuer_key_usage()` | RFC 10007 sec. 4 | `[ok]` | `tests/test_revocation.py::test_a_v1_or_v2_crl_issuer_is_exempt` | M5 |
+| `revocation.check_crl_signature()` | RFC 5280 sec. 5.1.1, 5.1.1.2, 6.3.3 | `[ok]` | `tests/test_revocation.py::test_a_crl_whose_two_algorithm_fields_differ_is_refused` | M5 |
+| `result.path_walk` | RFC 5280 sec. 6.1.2 to 6.1.5 as one pass: signatures, dates, revocation through a caller's checker, issuer names, `NameConstraints.restrict()` state, basic constraints and pathLen (k)-(m), keyUsage (n), critical extensions (o) and 6.1.5(f), then `policy.resolve()` (RFC 9618). Three answers: valid, invalid, unsupported; every step recorded | `[ok]` | `tests/test_path_walk.py::test_a_well_formed_path_validates_and_records_every_step`; `tests/test_pkits.py::test_pkits_counts` | M6 |
+| `names.smtp_utf8_mailbox` | RFC 9549 sec. 2.5, RFC 9598 (otherName SmtpUTF8Mailbox) | `[ ]` | (to be written) | M3 |
+| `policy.self_issued_any_policy` | RFC 9618 sec. 5.3(d)(2)(b): the `i<n` self-issued branch is coded but no test builds a self-issued path | `[ ]` | (to be written) | M4 |
+| `result.validate()` | RFC 5280 sec. 6: `chain.candidates()` then `path_walk()` per candidate | `[ok]` | `tests/test_path_walk.py::test_validate_discovers_the_path_through_the_pool` | M6 |
 | `result.provenance` | design: strategy constitution item 5 | `[ ]` | (to be written) | M6 |
-| `corpus.path_validation` | a pinned public path-validation suite (source, digest and licence not yet chosen) | `[ ]` | (to be written) | M6 |
+| `corpus.path_validation` | NIST PKITS 1.0.1 (247 cases of section 4), fetched by `tools/fetch_pkits.py` into a cache outside the tree, pinned by size and sha256; outcomes in `tests/pkits_cases.py` | `[part]` | `tests/test_pkits.py::test_pkits_counts`: 178 pass, 69 not applicable, 0 fail. The 69 are the rows below (DSA, IDP, indirect CRLs, separate CRL keys, delta CRLs) | M6 |
 | `deps.sigprim_pin` | design: `sigwire[verify]` (merged from the retired `sigprim`, 2026-11-13) is unpublished, so CI and the wheel cannot resolve it yet | `[ ]` | (to be written) | M6 |
 | `store.remember()` | design | `[ ]` | `tests/test_obligations.py::remember` | - |
 | `m7.document` | MS-CAB and MS-CTL: no retrievable copy, see below | `[ ]` | (to be written) | M7 |
@@ -100,6 +115,73 @@ Added 2026-11-13 from the group A roadmap review, each claim re-read through `rf
   revision, retrieved by a person who can reach one. It encodes in the matrix what the prose below says,
   because `projecthub`'s loop reads rows and not paragraphs. `ctl.signed_by_microsoft()` is also blocked by
   `signeddata`, because an Authenticode signature is CMS and none of RFC 5280 covers it.
+
+### Round 2 (2026-11-13): M3 to M5 pieces, and the corpus decision
+
+Read through `rfclib` first: RFC 5280 sec. 4.2.1.10, 6.1.2 to 6.1.5; RFC 9618 sec. 3 to 5 in full; RFC 9549
+sec. 2; RFC 9608 sec. 2 to 4; RFC 10007 sec. 4. Errata: RFC 9618 none, RFC 10007 none, RFC 9608 one held
+(eid 8012, an abstract typo), RFC 9549 one reported (eid 9230, a code point in the introduction), RFC 5280
+errata 3579 on 4.2.1.4 is editorial (a type name). None changes a rule implemented here.
+
+- `policy.resolve()` is RFC 9618's graph. The differential test compares it with a verbatim RFC 5280 policy
+  tree on 250 random paths of up to four certificates (policies, mappings, requireExplicitPolicy,
+  inhibitPolicyMapping, inhibitAnyPolicy, user-initial-policy-set) and fails when the mapping step is broken.
+  Self-issued certificates are not in that random set: row `policy.self_issued_any_policy`.
+- RFC 9618 section 5.3(d)(2) is worded differently from RFC 5280's: it iterates over policy values in the
+  expected sets and creates one child per value with all parents, where RFC 5280 created one child per
+  (parent, value). The code follows 9618.
+- RFC 9549 section 2.2 removed mailbox constraints, so an rfc822Name constraint containing "@" raises
+  `UnsupportedConstraint`. PKITS predates that and has mailbox cases: expect to mark them as expected
+  differences, not failures.
+- RFC 5280 section 4.2.1.10 says nothing on a dNSName constraint with a leading period; it is read as one or
+  more labels, like URI and mailbox constraints. A decision, recorded in `names.py`.
+- `revocation.crl_issuer_key_usage` follows RFC 10007: v3 issuer needs keyUsage present with cRLSign. A v1 or
+  v2 issuer is exempt.
+- RFC 9608 section 3 profile violations (noRevAvail with cA TRUE, CRL DP, freshest CRL, id-ad-ocsp) raise
+  `ProfileViolationError`; the section says the relying party "MUST consider the certificate invalid".
+- `validity.check_signed_data` was factored out of `check_signature_with_spki` so a CRL goes through the
+  same seam; certificate behaviour is unchanged.
+
+**Corpus decision (row `corpus.path_validation`).** NIST PKITS, "Public Key Interoperability Test Suite",
+version 1.0.1 of 2011-04-14, from the NIST CSRC project page `https://csrc.nist.gov/projects/pki-testing`:
+descriptions `https://csrc.nist.gov/CSRC/media/Projects/PKI-Testing/documents/PKITS.pdf` and data
+`https://csrc.nist.gov/CSRC/media/Projects/PKI-Testing/documents/PKITS_data.zip` (1.0 is kept at
+`.../PKITS_v1_0_0.pdf` and `.../PKI-Research-and-Testing/documents/PKITS_data_v1_0_0.zip`). The page was
+read on 2026-11-13 and carries no PKITS-specific licence or terms; its only pointer is a generic site
+"Copyrights" link, and the nist.gov copyright page returned 404 when fetched. Terms are therefore **not
+established**, so nothing was downloaded. The coordinator or owner decides whether NIST's generic policy
+for government-authored material is enough to fetch it into scratch. Until then the validator's corpus is
+synthetic certificates minted by `cryptography` (tests/builders.py) plus the recorded real chains.
+PKITS was written against RFC 3280 and predates RFC 9549 (mailbox constraints) and RFC 9618 (the graph).
+
+### Round 3 (2026-11-13): the path walk, and PKITS as the corpus
+
+Read through `rfclib` first: RFC 5280 sec. 6.1.2(k), 6.1.3, 6.1.4, 6.1.5 and 6.3.3, and the errata list
+(6 verified, none on section 6.1.3 to 6.1.5 or 6.3.3; eid 5938 on section 6.1 is wording about the
+goal of validation).
+
+- `result.path_walk` joins the existing pieces in section order and stops at the first failing step,
+  as section 6.1.4 says the procedure "terminates". Its answer is valid, invalid or unsupported, and
+  every step is recorded with its certificate number. Revocation is a caller's `RevocationChecker`;
+  without one, `revocation_checked` is False and the walk says it did not look.
+- **Spec correction to section 5 below.** The open question on version 1 CA certificates read section
+  4.2.1.9 alone. Section 6.1.4(k) does decide it: for a v1 or v2 intermediate "the application MUST
+  either verify that certificate i is a CA certificate through out-of-band means or reject the
+  certificate". pkix rejects, which the text permits; it is no longer a guess.
+- `revocation.CrlChecker` is section 6.3.3 for complete CRLs from the certificate's issuer and fails
+  closed: no usable CRL is UNDETERMINED, which fails the path. One complete CRL that revokes settles
+  it; a certificateHold or a "good" with delta CRLs present is "unsupported", because a delta can
+  change either.
+- PKITS 1.0.1: `PKITS_data.zip`, 3,052,513 octets, sha256
+  `592f66030d2eff80fced7ad022e197d96b7ee4ccce7da9df9c9b2007b1665665` (read 2026-11-13, Last-Modified
+  2024-09-29, members dated 2011-04-14). The outcomes were read from `PKITS.pdf`, 5,027,216 octets,
+  sha256 `506913f4b727704ee1b52b17aa472dc6fbcf01e41e7ad88ba505f29c1a74d9ea`. 247 cases (224 tests,
+  some with several inputs): **178 pass, 69 not applicable, 0 fail**, validated at 2020-06-01Z.
+  Nothing of the corpus is in the tree. PKITS predates RFC 9549, but no mailbox-constraint case
+  came out "unsupported": every 4.13 case passes.
+- Two PKITS certificates and one CRL (`BadCRLSignatureCACRL.crl`) declare a nonzero unused-bit count
+  in signatureValue, which `asn1core` refuses; the walk reports them unreadable, and the cases
+  expecting rejection pass for that reason rather than for a failed signature.
 
 The Milestone column places each row on the ladder in section 2, using that ladder's own wording. Two placements are a reading and not a quotation: `result.validate()` sits at M6 because the conformance trace exercises the whole-path entry point, and `store.remember()` is a design row the ladder does not place, so it carries `-`.
 
@@ -251,7 +333,8 @@ same commit, because leaving it standing would make the two documents disagree a
   re-based onto `asn1core` in the same change, and `cryptography` is no longer imported by anything in
   `pkix/`. RFC 5280 section 6.1.1(d) does not require an anchor's own signature to verify, so `load_anchor`
   still loads a certificate whose self-signature does not check and records `self_signed` instead.
-- **A version 1 certificate carries no basic constraints extension at all**, and RFC 5280 §4.2.1.9
+- **Answered 2026-11-13 (Round 3 above): section 6.1.4(k) lets an application reject a v1 or v2
+  intermediate, and pkix does.** The question as first written: **a version 1 certificate carries no basic constraints extension at all**, and RFC 5280 §4.2.1.9
   phrases its prohibition for the case where the extension "is not present in a *version 3*
   certificate". Read closely, that sentence does not reach a v1 issuer, so the text does not say
   whether a v1 CA certificate may serve as a path member. pkix's answer is refusal (fail closed)

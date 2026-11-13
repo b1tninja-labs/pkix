@@ -11,11 +11,13 @@ from __future__ import annotations
 __all__ = [
     "MalformedAlgorithm",
     "MalformedCertificate",
+    "MalformedExtension",
     "PkixError",
     "SignatureInvalid",
     "SignaturePolicyRefused",
     "SignatureUnsupported",
     "UnsignedCertificate",
+    "UnsupportedConstraint",
 ]
 
 
@@ -63,4 +65,22 @@ class SignaturePolicyRefused(PkixError):
     A 1024-bit RSA key or a SHA-1 digest under the default policy lands here. The caller who needs to
     verify history passes a more permissive `sigwire[verify]` policy and gets the answer with the refusal
     reported rather than silently waived.
+    """
+
+
+class MalformedExtension(PkixError, ValueError):
+    """An extension's value does not have the syntax its defining document gives it.
+
+    Raised by `pkix.extensions` and `pkix.names` when a decoder is handed bytes that are not a
+    well-formed value of the extension's type. A caller must not read it as "the extension is
+    absent": a path with a malformed extension has not been validated.
+    """
+
+
+class UnsupportedConstraint(PkixError):
+    """A name constraint this version of pkix cannot evaluate, so it refuses instead of guessing.
+
+    RFC 5280 section 4.2.1.10 says that where a critical name constraint covers a name form that
+    appears in a later certificate, the application "MUST either process the constraint or reject the
+    certificate". This is the rejection, and it is distinct from "the name violates the constraint".
     """
