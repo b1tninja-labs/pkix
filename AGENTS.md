@@ -49,8 +49,8 @@ rather than merely incomplete.
    Never return an empty value, an empty collection, or a result object that reports
    success. A protocol library that answers nothing is worse than one that refuses
    to answer, and `tests/test_public_api.py` enforces that every stub is loud.
-3. **Normative text is never paraphrased from memory.** Fetch it with `rfclib` and
-   cite the section. If the text you fetch does not say what the obligation claims,
+3. **Normative text is never paraphrased from memory.** Fetch it with the `rfc_*`
+   tools and cite the section. If the text you fetch does not say what the obligation claims,
    the obligation is wrong: fix the roadmap row and say so in the commit.
 4. **Dependencies.** The runtime dependencies are `asn1core` and `sigwire[verify]`, both resolved from sibling
    checkouts. `cryptography` is **not** one: nothing in `pkix/` may import it, a test enforces that, and it is
@@ -71,7 +71,7 @@ rather than merely incomplete.
 
 ## Protocol work
 
-`.clinerules/10-rfclib.md` describes the `rfclib` calls to make for each obligation
+`.clinerules/10-rfclib.md` describes the `rfc_*` tool calls to make for each obligation
 and lists the section refs for this project. If you are not running in Cline, the
 same procedure applies: confirm the document, read its errata, pull the normative
 statements, then write code.
