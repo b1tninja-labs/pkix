@@ -13,6 +13,7 @@ bits in genuine certificates and requires pkix to agree with `cryptography` abou
 
 from __future__ import annotations
 
+import datetime
 import pathlib
 import random
 from collections.abc import Callable
@@ -22,8 +23,8 @@ import asn1core
 import pytest
 import sigwire.verify
 from cryptography.exceptions import InvalidSignature
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.asymmetric import ec, ed25519, padding, rsa, utils
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import dsa, ec, ed25519, padding, rsa, utils
 from support import Minted, join, mint, parts, replace_everywhere, tlv
 
 from pkix import _algorithms as alg
@@ -529,3 +530,115 @@ def test_every_signature_oid_maps_to_the_hash_its_document_names() -> None:
     for oid_hex, hash_name in ecdsa.items():
         scheme = alg.decode_signature_algorithm(tlv(0x30, tlv(0x06, bytes.fromhex(oid_hex))))
         assert (scheme.scheme, scheme.hash_name) == (alg.ECDSA, hash_name), oid_hex
+    # RFC 3279 section 2.2.2 and RFC 5758 section 3.1: parameters SHALL be omitted.
+    dsa_ids = {
+        "2a8648ce380403": "sha1",
+        "608648016503040301": "sha224",
+        "608648016503040302": "sha256",
+    }
+    for oid_hex, hash_name in dsa_ids.items():
+        scheme = alg.decode_signature_algorithm(tlv(0x30, tlv(0x06, bytes.fromhex(oid_hex))))
+        assert (scheme.scheme, scheme.hash_name) == (alg.DSA, hash_name), oid_hex
+        with pytest.raises(errors.MalformedAlgorithm, match="SHALL be omitted"):
+            alg.decode_signature_algorithm(
+                tlv(0x30, tlv(0x06, bytes.fromhex(oid_hex)) + b"\x05\x00")
+            )
+
+
+# ---------------------------------------------------------------- algorithms.rehome
+
+
+def test_public_keys_are_read_by_asn1core_parse_spki(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Row `algorithms.rehome`: `decode_public_key` reads the SPKI through `asn1core.keys`, so a
+    rule asn1core enforces (here RFC 3279 section 2.3.2's NULL refusal for DSA) is pkix's too."""
+    import asn1core.keys
+
+    seen: list[bytes] = []
+    real_parse = asn1core.keys.parse_spki
+
+    def spy(buffer: bytes, *, der: bool = True) -> asn1core.keys.SubjectPublicKeyInfo:
+        seen.append(buffer)
+        return real_parse(buffer, der=der)
+
+    monkeypatch.setattr(asn1core.keys, "parse_spki", spy)
+    key = ec.generate_private_key(ec.SECP256R1()).public_key()
+    spki = key.public_bytes(
+        serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo
+    )
+    assert isinstance(alg.decode_public_key(spki), alg.EcKey)
+    assert seen == [spki]
+    dsa_null = tlv(
+        0x30,
+        tlv(0x30, bytes.fromhex("06072a8648ce380401") + b"\x05\x00")
+        + tlv(0x03, b"\x00" + tlv(0x02, b"\x05")),
+    )
+    with pytest.raises(errors.MalformedAlgorithm, match="never NULL"):
+        alg.decode_public_key(dsa_null)
+
+
+# ---------------------------------------------------------------- algorithms.dsa
+
+# 1024/160 is the smallest (L, N) pair of FIPS 186-4 that sigwire's LEGACY admits, and the fastest to
+# generate; these keys only ever sign test certificates.
+_DSA_ROOT = dsa.generate_private_key(key_size=1024)  # noqa: S505
+
+
+def _dsa_spki_without_parameters(key: dsa.DSAPublicKey) -> bytes:
+    """RFC 3279 section 2.3.2: an id-dsa AlgorithmIdentifier of one component, the key an INTEGER."""
+    y = key.public_numbers().y
+    integer = tlv(0x02, y.to_bytes(y.bit_length() // 8 + 1, "big"))
+    return tlv(0x30, tlv(0x30, bytes.fromhex("06072a8648ce380401")) + tlv(0x03, b"\x00" + integer))
+
+
+def test_dsa_is_refused_by_the_strict_policy_and_verified_under_legacy() -> None:
+    """Row `algorithms.dsa`: PORTFOLIO.md section 9 item 15 (the sigwire decision) keeps DSA out of
+    `sigwire.verify.DEFAULT` and in `LEGACY`."""
+    leaf_key = _DSA_ROOT.parameters().generate_private_key()
+    leaf = mint(leaf_key, _DSA_ROOT, subject="leaf", issuer="root")
+    root = mint(_DSA_ROOT, _DSA_ROOT, subject="root", issuer="root")
+    with pytest.raises(errors.SignaturePolicyRefused, match="dsa"):
+        check_signature(leaf.der, root.der)
+    result = check_signature(leaf.der, root.der, policy=sigwire.verify.LEGACY)
+    assert (result.scheme, result.hash_name, result.key) == ("dsa", "sha256", "DSA-1024/160")
+    tbs_content, rest = parts(leaf.der)
+    flipped = join(tbs_content[:-1] + bytes([tbs_content[-1] ^ 1]), rest)
+    with pytest.raises(errors.SignatureInvalid):
+        check_signature(flipped, root.der, policy=sigwire.verify.LEGACY)
+
+
+def test_dsa_parameters_are_inherited_along_the_path() -> None:
+    """RFC 3279 section 2.3.2 and RFC 5280 section 6.1.4(e): a DSA key that omits its parameters
+    takes the issuer's. The CA certificate below carries a parameterless SPKI, re-signed by the
+    root, and the leaf it signs validates only with the root's parameters."""
+    from pkix.anchors import load_anchor
+    from pkix.result import PathInputs, path_walk
+
+    ca_key = _DSA_ROOT.parameters().generate_private_key()
+    root = mint(_DSA_ROOT, _DSA_ROOT, subject="root", issuer="root")
+    ca = mint(ca_key, _DSA_ROOT, subject="ca", issuer="root")
+    full_spki = ca.certificate.subject_public_key_info
+    bare_spki = _dsa_spki_without_parameters(ca_key.public_key())
+    tbs_content, _rest = parts(ca.der)
+    tbs = tlv(0x30, tbs_content.replace(full_spki, bare_spki))
+    signature = _DSA_ROOT.sign(tbs, hashes.SHA256())
+    top, _ = asn1core.decode(ca.der, der=True)
+    bare_ca = tlv(0x30, tbs + top.children[1].raw + tlv(0x03, b"\x00" + signature))
+    leaf_key = _DSA_ROOT.parameters().generate_private_key()
+    leaf = mint(leaf_key, ca_key, subject="leaf", issuer="ca")
+
+    anchor = load_anchor(root.der)
+    at = datetime.datetime(2025, 1, 1, tzinfo=datetime.UTC)
+    legacy = PathInputs(signature_policy=sigwire.verify.LEGACY)
+    result = path_walk([leaf.der, bare_ca], anchor, at, legacy)
+    assert result.valid, result.steps
+    # Section 6.1.5(d): the target carries parameters of its own, and those are the output.
+    assert result.working_public_key_parameters is not None
+    assert result.working_public_key_parameters.q == leaf_key.parameters().parameter_numbers().q
+    # The same CA key with nothing to inherit from cannot verify the leaf.
+    with pytest.raises(errors.MalformedAlgorithm, match="none are inherited"):
+        check_signature_with_spki(leaf.der, bare_spki, policy=sigwire.verify.LEGACY)
+    # Under the strict default the path stops at the first DSA signature.
+    strict = path_walk([leaf.der, bare_ca], anchor, at)
+    assert strict.status == "invalid"
+    assert strict.failure is not None
+    assert "signature policy" in strict.failure.detail

@@ -27,12 +27,12 @@ drift apart within one release, and the document becomes useless exactly when it
 | `validity.unsigned_certificate` | RFC 9925 sec. 3.1, 4 | `[ok]` | `tests/test_signatures.py::test_an_unsigned_certificate_is_refused_as_a_path_signature` | M2 |
 | `algorithms.oid_table` | RFC 3279 sec. 2.2; RFC 4055 sec. 5; RFC 5758 sec. 3.2; RFC 8017 erratum 5154 | `[ok]` | `tests/test_signatures.py::test_every_signature_oid_maps_to_the_hash_its_document_names` | M2 |
 | `validity.check_signature()` | RFC 5280 sec. 6.1.3(a)(1), 4.1.1.2, 4.1.1.3; RFC 3279; RFC 4055 sec. 3.1, 5; RFC 5480 sec. 2; RFC 5758 sec. 3.2; RFC 8410 sec. 3, 6; arithmetic by `sigwire[verify]` | `[part]` | `tests/test_signatures.py::test_differential_against_cryptography` | M2 |
-| `algorithms.rehome` | design: `asn1core` owns structure. `asn1core.keys.parse_spki` now exists (uncommitted round-2 work there, 2026-11-13), so `decode_public_key` can move onto it; signeddata and revokekit already left `_algorithms` (revokekit now calls the public `validity.check_signed_data`) | `[ ]` | (to be written) | M2 |
+| `algorithms.rehome` | design: `asn1core` owns structure (PORTFOLIO.md section 9 item 15). `_algorithms.decode_public_key` reads the SPKI through `asn1core.keys.parse_spki`, which enforces RFC 3279 sec. 2.3.1 and 2.3.2, RFC 5480 sec. 2.1.1 and 2.2 and RFC 8410 sec. 3; pkix keeps only which keys it verifies with. signeddata and revokekit already left `_algorithms` | `[ok]` | `tests/test_signatures.py::test_public_keys_are_read_by_asn1core_parse_spki` | M2 |
 | `algorithms.ec_compressed` | RFC 5480 sec. 2.2 (compressed points MAY be supported) | `[ ]` | (to be written) | M2 |
 | `algorithms.rsassa_pss_key` | RFC 4055 sec. 3.1, 3.3; RFC 5756; RFC 8017 sec. A.2.3 and erratum 5111 | `[ ]` | (to be written) | M2 |
 | `algorithms.ed448` | RFC 8410 sec. 3; RFC 8032 sec. 5.2 | `[ ]` | (to be written) | M2 |
 | `algorithms.ml_dsa` | RFC 9881 | `[ ]` | (to be written) | M2 |
-| `algorithms.dsa` | RFC 3279 sec. 2.2.2, 2.3.2, and parameter inheritance of RFC 5280 sec. 6.1.4(e). `sigwire[verify]` refuses DSA by default (PORTFOLIO.md section 9 item 15), so PKITS 4.1.4 and 4.1.5 are not applicable unless a caller opts in | `[ ]` | (to be written) | M2 |
+| `algorithms.dsa` | RFC 3279 sec. 2.2.2, 2.3.2; RFC 5758 sec. 3.1; parameter inheritance of RFC 5280 sec. 6.1.2(d)-(f), 6.1.4(e)-(f), 6.1.5(c)-(e). Verified by `sigwire.verify.dsa`: refused by `sigwire.verify.DEFAULT` as a policy refusal and admitted by `LEGACY` (PORTFOLIO.md section 9 item 15). PKITS 4.1.4 and 4.1.5 validate under `LEGACY` | `[ok]` | `tests/test_signatures.py::test_dsa_is_refused_by_the_strict_policy_and_verified_under_legacy`; `tests/test_signatures.py::test_dsa_parameters_are_inherited_along_the_path`; `tests/test_pkits.py::test_dsa_cases_are_refused_under_the_strict_policy` | M2 |
 | `extensions.key_usage_asn1core` | PORTFOLIO.md section 9 item 15: keyUsage read by `asn1core.extensions.parse_key_usage` (X.690 11.2.2 trailing zero bits refused) | `[ok]` | `tests/test_path_walk.py::test_key_usage_is_read_by_asn1core_and_a_trailing_zero_bit_is_refused` | M3 |
 | `chain.ca_constraints` | RFC 5280 sec. 6.1.4(k)-(n), 4.2.1.9, 4.2.1.3; RFC 5480 sec. 3 with RFC 8813; RFC 9295 | `[part]` | `tests/test_path_walk.py::test_path_length_constraint_zero_stops_a_further_ca`; `tests/test_path_walk.py::test_a_key_usage_without_key_cert_sign_is_rejected`; `tests/test_path_walk.py::test_an_intermediate_without_basic_constraints_ca_is_rejected`. Done in `result.path_walk`: (k) cA, (l)-(m) pathLen with the self-issued exemption, (n) keyCertSign. Missing: the RFC 5480/8813/9295 key-usage consistency for EC and EdDSA keys | M2 |
 | `chain.critical_extensions` | RFC 5280 sec. 4.2, 6.1.4(o), 6.1.5(f) | `[ok]` | `tests/test_path_walk.py::test_an_unknown_critical_extension_fails_and_a_non_critical_one_does_not` | M2 |
@@ -44,11 +44,11 @@ drift apart within one release, and the document becomes useless exactly when it
 | `policy.graph` | RFC 9618 sec. 4.1, 4.2 and 5.2-5.5: the policy graph, linear in the certificates | `[ok]` | `tests/test_policy.py::test_the_exponential_example_of_rfc_9618_sec_3_2_stays_linear` | M4 |
 | `policy.limits` | RFC 9618 sec. 6.2, 6.3 (fallback bounds on depth and size; defence in depth once the graph exists) | `[ ]` | (to be written) | M4 |
 | `revocation.status_of()` | RFC 5280 sec. 6.1.3(a)(3), 6.3; RFC 6960 | `[ ]` | `tests/test_obligations.py::status_of` | M5 |
-| `revocation.crl_checker` | RFC 5280 sec. 6.3.3 (b)(1), (a)(1), (f) with RFC 10007, (g), (j), (k); sec. 5.2 and 5.3 critical extensions. Fails closed: no usable CRL is UNDETERMINED | `[part]` | `tests/test_path_walk.py::test_a_revoked_leaf_fails_and_an_absent_crl_fails_closed`; `tests/test_path_walk.py::test_a_crl_feature_pkix_does_not_process_is_unsupported_not_good`. Missing: the four rows below | M5 |
-| `revocation.idp` | RFC 5280 sec. 6.3.3(b)(2), (d), (e): issuing distribution point, onlySomeReasons, reasons_mask. Answered "unsupported" today (PKITS 4.14.1-4.14.23, 4.5.3-4.5.8) | `[ ]` | (to be written) | M5 |
-| `revocation.indirect_crl` | RFC 5280 sec. 6.3.3(b)(1) cRLIssuer, sec. 5.3.3 certificateIssuer. "unsupported" today (PKITS 4.14.24-4.14.35) | `[ ]` | (to be written) | M5 |
-| `revocation.separate_crl_key` | RFC 5280 sec. 6.3.3(f): a path for a CRL signer other than the certificate issuer's key, same trust anchor. "unsupported" today (PKITS 4.4.19-4.4.21 and the self-issued key-rollover cases of 4.5, 4.6, 4.9, 4.11, 4.12, 4.13.19) | `[ ]` | (to be written) | M5 |
-| `revocation.delta_crl` | RFC 5280 sec. 5.2.4, 6.3.3(c), (h), (i): merging delta CRLs (use-deltas). Present deltas make the answer "unsupported" today (PKITS 4.15.2-4.15.8) | `[ ]` | (to be written) | M5 |
+| `revocation.crl_checker` | RFC 5280 sec. 6.3.3 (a) to (l) and its last paragraph, with RFC 10007 sec. 4 for (f); sec. 5.2 and 5.3 critical extensions. Fails closed: no usable CRL is UNDETERMINED; a CRL signature pkix cannot verify is "unsupported" | `[ok]` | `tests/test_path_walk.py::test_a_revoked_leaf_fails_and_an_absent_crl_fails_closed`; `tests/test_path_walk.py::test_a_crl_pkix_cannot_verify_is_unsupported_not_good`; the four rows below | M5 |
+| `revocation.idp` | RFC 5280 sec. 5.2.5, 6.3.3(b)(2), (d), (e), (l): issuing distribution point (decoded by `asn1core.extensions.parse_issuing_distribution_point`), distribution point names (sec. 4.2.1.13, nameRelativeToCRLIssuer included), onlyContains*, onlySomeReasons and reasons_mask. PKITS 4.14.1-4.14.23, 4.5.3-4.5.8 | `[ok]` | `tests/test_crl_processing.py::test_an_issuing_distribution_point_scope_is_processed_not_refused`; `tests/test_crl_processing.py::test_idp_distribution_point_names_must_match_the_certificates`; `tests/test_crl_processing.py::test_only_some_reasons_crls_must_together_cover_every_reason` | M5 |
+| `revocation.indirect_crl` | RFC 5280 sec. 6.3.3(b)(1) cRLIssuer with indirectCRL, sec. 5.3.3 certificateIssuer (each entry attributed to the issuer named last). PKITS 4.14.24-4.14.35 | `[ok]` | `tests/test_crl_processing.py::test_an_indirect_crl_attributes_each_entry_to_its_certificate_issuer`; `tests/test_crl_processing.py::test_a_crl_issuer_named_in_the_dp_must_assert_indirect_crl` | M5 |
+| `revocation.separate_crl_key` | RFC 5280 sec. 6.3.3(f): a path for a CRL signer other than the certificate issuer's key, from the same trust anchor (`RevocationRequest.anchor`), revocation included, signers drawn from `CrlChecker(certificates=...)`. PKITS 4.4.19-4.4.21 and the self-issued key-rollover cases of 4.5, 4.6, 4.9, 4.11, 4.12, 4.13.19 | `[ok]` | `tests/test_crl_processing.py::test_a_separate_crl_signing_key_is_validated_from_the_same_anchor` | M5 |
+| `revocation.delta_crl` | RFC 5280 sec. 5.2.4 (a)-(d), 6.3.3(a)(2), (c), (h), (i), (k): the current delta CRL with matching issuer, IDP and AKI whose BaseCRLNumber the complete CRL reaches, verified under the step (f) key and searched first; `use_deltas=False` ignores deltas. PKITS 4.15.1-4.15.8 | `[ok]` | `tests/test_crl_processing.py::test_a_delta_crl_is_merged_with_the_complete_crl_it_updates`; `tests/test_crl_processing.py::test_a_delta_crl_takes_a_certificate_off_hold`; `tests/test_crl_processing.py::test_a_delta_crl_alone_is_never_a_complete_crl` | M5 |
 | `revocation.no_rev_avail` | RFC 9608 sec. 4: step (a)(3) is skipped for noRevAvail or ocsp-nocheck | `[ok]` | `tests/test_revocation.py::test_no_rev_avail_skips_revocation_checking`; `tests/test_revocation.py::test_no_rev_avail_on_a_ca_is_invalid` | M5 |
 | `revocation.crl_issuer_key_usage` | RFC 10007 sec. 4: amended step (f) of RFC 5280 sec. 6.3.3 | `[ok]` | `tests/test_revocation.py::test_a_v3_crl_issuer_without_key_usage_now_fails` | M5 |
 | `revocation.crl_signature` | RFC 5280 sec. 5.1.1, 6.3.3; verify through `validity.check_signature_with_spki` | `[ok]` | `tests/test_revocation.py::test_a_tampered_crl_fails_its_signature` | M5 |
@@ -62,7 +62,7 @@ drift apart within one release, and the document becomes useless exactly when it
 | `policy.self_issued_any_policy` | RFC 9618 sec. 5.3(d)(2)(b): the `i<n` self-issued branch is coded but no test builds a self-issued path | `[ ]` | (to be written) | M4 |
 | `result.validate()` | RFC 5280 sec. 6: `chain.candidates()` then `path_walk()` per candidate | `[ok]` | `tests/test_path_walk.py::test_validate_discovers_the_path_through_the_pool` | M6 |
 | `result.provenance` | design: strategy constitution item 5 | `[ ]` | (to be written) | M6 |
-| `corpus.path_validation` | NIST PKITS 1.0.1 (247 cases of section 4), fetched by `tools/fetch_pkits.py` into a cache outside the tree, pinned by size and sha256; outcomes in `tests/pkits_cases.py` | `[part]` | `tests/test_pkits.py::test_pkits_counts`: 178 pass, 69 not applicable, 0 fail. The 69 are the rows below (DSA, IDP, indirect CRLs, separate CRL keys, delta CRLs) | M6 |
+| `corpus.path_validation` | NIST PKITS 1.0.1 (247 cases of section 4), fetched by `tools/fetch_pkits.py` into a cache outside the tree, pinned by size and sha256; outcomes in `tests/pkits_cases.py` | `[ok]` | `tests/test_pkits.py::test_pkits_counts`: **247 pass, 0 not applicable, 0 fail** (2026-11-13; 178/69/0 before the revocation rows and DSA). The test skips, loudly, without the cached corpus | M6 |
 | `deps.sigprim_pin` | design: `sigwire[verify]` (merged from the retired `sigprim`, 2026-11-13) is unpublished, so CI and the wheel cannot resolve it yet | `[ ]` | (to be written) | M6 |
 | `store.remember()` | design | `[ ]` | `tests/test_obligations.py::remember` | - |
 | `m7.document` | MS-CAB and MS-CTL: no retrievable copy, see below | `[ ]` | (to be written) | M7 |
@@ -182,6 +182,44 @@ goal of validation).
 - Two PKITS certificates and one CRL (`BadCRLSignatureCACRL.crl`) declare a nonzero unused-bit count
   in signatureValue, which `asn1core` refuses; the walk reports them unreadable, and the cases
   expecting rejection pass for that reason rather than for a failed signature.
+
+### Round 4 (2026-11-13): the CRL algorithm in full, DSA, and the 69 PKITS cases
+
+Read through `rfclib` first: RFC 5280 sec. 4.2.1.13, 5.2.3, 5.2.4, 5.2.5, 5.3.3, 6.1.4, 6.3.3; RFC 10007
+sec. 4; RFC 3279 sec. 2.2.2, 2.3.2 and its errata (5 verified, 2 held, none on those sections); RFC 5758
+sec. 3.1. RFC 5280 errata on the CRL sections: none verified; 3674 (held, editorial) renames the
+"distribution field" of 6.3.3(b)(2)(i) to distributionPoint, which is how it is read here.
+
+- **PKITS 1.0.1 went from 178 pass, 69 not applicable, 0 fail to 247 pass, 0 not applicable, 0
+  fail.** Every formerly not-applicable invalid case was checked to fail for the reason the PKITS
+  document gives (revoked, or status undetermined), not by accident. 4.1.6 still fails because
+  `asn1core` refuses its signatureValue's unused bits, as recorded in round 3.
+- `CrlChecker` is now section 6.3.3 as written: per distribution point, then the assumed DP of the
+  last paragraph; reasons_mask to all-reasons; (b)(1) cRLIssuer with indirectCRL; (b)(2) IDP scope;
+  (f) a separate CRL signer whose path is validated from the same trust anchor; (c), (h), (i)
+  delta CRLs. The old "unsupported" answers for IDPs, indirect CRLs, separate keys and present
+  deltas are gone. `CrlChecker` takes `certificates=` (possible CRL signers) and `use_deltas=`.
+- `asn1core` now decodes IssuingDistributionPoint, cRLNumber, deltaCRLIndicator, certificateIssuer
+  and freshestCRL, and DSA keys; pkix's `_algorithms.decode_public_key` reads through
+  `asn1core.keys.parse_spki` (row `algorithms.rehome`).
+- Decisions the text leaves open, taken here, each a reading rather than a quotation:
+  - **all-reasons excludes ReasonFlags bit 0, "unused".** Section 5.2.5 says a revoked certificate
+    on a CRL with onlySomeReasons "MUST be assigned a revocation reason other than unspecified", so
+    nothing can be filed under bit 0, and a partition that omits it covers every reason (cryptography
+    cannot set the bit at all). PKITS 4.14.15 to 4.14.21 pass either way.
+  - **A CRL may vouch for its own signer.** PKITS 4.14.30 expects the certificate of an indirect CRL
+    issuer to be covered by the indirect CRL that issuer signs. While a CRL signer's path is being
+    validated, its CRL is verified under the candidate's key without re-entering the same path; such
+    a CRL is tried after every other CRL. Nesting is bounded at 4 (sec. 6.2 permits limits).
+  - A CRL signer's path is validated with the default inputs of sec. 6.1.1 (any-policy, no
+    explicit policy) and the checker's signature policy; sec. 6.3.3(f) names only the trust anchor.
+  - CRLs are tried newest thisUpdate first, and a CRL without an IDP corresponds to every DP.
+  - With use-deltas set and a freshest CRL present, a missing delta does not make the answer
+    UNDETERMINED: the complete CRL is still complete for its scope (sec. 6.3.3(a)(2) asks to obtain
+    one; it does not make its absence fatal).
+- DSA: RFC 5280 sec. 6.1.4(e)-(f) carried as working_public_key_parameters for DSA only (the one
+  algorithm pkix verifies whose parameters are inherited); `PathResult.working_public_key_parameters`
+  is section 6.1.5(d)'s output. PKITS runs its three DSA cases under `sigwire.verify.LEGACY`.
 
 The Milestone column places each row on the ladder in section 2, using that ladder's own wording. Two placements are a reading and not a quotation: `result.validate()` sits at M6 because the conformance trace exercises the whole-path entry point, and `store.remember()` is a design row the ladder does not place, so it carries `-`.
 

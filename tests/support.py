@@ -14,12 +14,14 @@ from typing import Any
 import asn1core
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import ec, ed25519, rsa
+from cryptography.hazmat.primitives.asymmetric import dsa, ec, ed25519, rsa
 from cryptography.x509.oid import NameOID
 
 NOT_BEFORE = datetime.datetime(2024, 1, 1)
 
-type PrivateKey = rsa.RSAPrivateKey | ec.EllipticCurvePrivateKey | ed25519.Ed25519PrivateKey
+type PrivateKey = (
+    rsa.RSAPrivateKey | ec.EllipticCurvePrivateKey | ed25519.Ed25519PrivateKey | dsa.DSAPrivateKey
+)
 
 
 @dataclass(frozen=True)

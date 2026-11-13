@@ -5,8 +5,10 @@ This is certificate structure, so it is read with `asn1core`'s codec; the arithm
 and every parameter rule is that document's own wording. Where a document is silent, the choice is
 pkix's and the comment says so.
 
-ROADMAP row `algorithms.rehome` moves this module into `asn1core` (its `dk.spki-key` row) once that
-exists; until then pkix owns the interpretation and `asn1core` owns the TLVs.
+Row `algorithms.rehome` (done 2026-11-13): the SubjectPublicKeyInfo is read by
+`asn1core.keys.parse_spki`, which enforces RFC 3279 sections 2.3.1 and 2.3.2, RFC 5480 sections
+2.1.1 and 2.2 and RFC 8410 section 3; `decode_public_key` keeps only what is pkix's: which keys it
+verifies with, and the errors it raises. The signature algorithm tables stay here.
 """
 
 from __future__ import annotations
@@ -14,26 +16,32 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import asn1core
+import asn1core.keys
 from asn1core import Node, Tag, TagClass
 
 from .errors import MalformedAlgorithm, SignatureUnsupported, UnsignedCertificate
 
 __all__ = [
+    "DSA",
     "ECDSA",
     "ED25519",
     "RSA_PKCS1V15",
     "RSA_PSS",
     "AlgorithmId",
+    "DsaKey",
     "EcKey",
     "Ed25519Key",
     "PublicKey",
     "RsaKey",
     "SignatureScheme",
     "decode_algorithm",
+    "decode_dss_signature",
     "decode_ecdsa_signature",
     "decode_public_key",
     "decode_signature_algorithm",
+    "dsa_parameters_of",
     "is_null",
+    "key_algorithm_of",
     "split_spki",
 ]
 
@@ -41,6 +49,7 @@ RSA_PKCS1V15 = "rsa-pkcs1v15"
 RSA_PSS = "rsa-pss"
 ECDSA = "ecdsa"
 ED25519 = "ed25519"
+DSA = "dsa"
 
 _SEQUENCE = Tag(16, True, TagClass.universal)
 _INTEGER = Tag(2, False, TagClass.universal)
@@ -82,6 +91,14 @@ _ECDSA_SIGNATURES = {
     "1.2.840.10045.4.3.2": "sha256",
     "1.2.840.10045.4.3.3": "sha384",
     "1.2.840.10045.4.3.4": "sha512",
+}
+
+# RFC 3279 section 2.2.2 (id-dsa-with-sha1) and RFC 5758 section 3.1 (id-dsa-with-sha224 and
+# id-dsa-with-sha256): each "SHALL omit the parameters field".
+_DSA_SIGNATURES = {
+    "1.2.840.10040.4.3": "sha1",
+    "2.16.840.1.101.3.4.3.1": "sha224",
+    "2.16.840.1.101.3.4.3.2": "sha256",
 }
 
 _CURVES = {
@@ -135,7 +152,16 @@ class Ed25519Key:
     public: bytes
 
 
-type PublicKey = RsaKey | EcKey | Ed25519Key
+@dataclass(frozen=True, slots=True)
+class DsaKey:
+    """A DSA key. ``parameters`` is None when the SPKI omitted them (RFC 3279 section 2.3.2): the
+    path supplies them as working_public_key_parameters (RFC 5280 section 6.1.4(e))."""
+
+    y: int
+    parameters: asn1core.keys.DsaParameters | None
+
+
+type PublicKey = RsaKey | EcKey | Ed25519Key | DsaKey
 
 
 def _decode_one(raw: bytes, what: str) -> Node:
@@ -268,6 +294,12 @@ def decode_signature_algorithm(raw: bytes) -> SignatureScheme:
     if oid == RSASSA_PSS:
         hash_name, mgf_hash, salt = _pss_parameters(parameters)
         return SignatureScheme(algorithm, RSA_PSS, hash_name, salt, mgf_hash)
+    if oid in _DSA_SIGNATURES:
+        if parameters is not None:
+            raise MalformedAlgorithm(
+                f"{oid}: DSA signature parameters SHALL be omitted (RFC 3279 s. 2.2.2, RFC 5758 s. 3.1)"
+            )
+        return SignatureScheme(algorithm, DSA, _DSA_SIGNATURES[oid])
     raise SignatureUnsupported(f"signature algorithm {oid} is not one pkix verifies")
 
 
@@ -309,58 +341,74 @@ def split_spki(spki: bytes) -> tuple[AlgorithmId, bytes]:
 
 
 def decode_public_key(spki: bytes) -> PublicKey:
-    """A SubjectPublicKeyInfo read into the numbers a verifier needs.
+    """A SubjectPublicKeyInfo read into the numbers a verifier needs, through `asn1core.keys`.
 
-    rsaEncryption: parameters MUST be NULL (RFC 3279 section 2.3.1, RFC 4055 section 6), key is a
-    DER RSAPublicKey. id-ecPublicKey: parameters MUST be a namedCurve (RFC 5480 section 2.1.1), the
-    point must start 0x04 (uncompressed) - 0x02 and 0x03 are legal but pkix does not decompress yet -
-    and any other first octet MUST be rejected (section 2.2). id-Ed25519: parameters MUST be absent
-    (RFC 8410 section 3), the key is the 32 octets of the BIT STRING.
+    `asn1core.keys.parse_spki` enforces the document rules and raises `PublicKeyError` (here
+    `MalformedAlgorithm`) for a key that breaks them: rsaEncryption parameters NULL (RFC 3279
+    section 2.3.1), id-ecPublicKey a namedCurve and a point form other than the hybrid ones (RFC
+    5480 sections 2.1.1 and 2.2), Ed25519 parameters absent and 32 octets (RFC 8410 section 3),
+    id-dsa parameters omitted entirely or Dss-Parms and the key an INTEGER (RFC 3279 section 2.3.2).
+
+    What is pkix's: which of those keys it verifies with. A compressed EC point, a curve other than
+    P-256, P-384 and P-521, an id-RSASSA-PSS key (row `algorithms.rsassa_pss_key`) and every other
+    algorithm are `SignatureUnsupported`. A DSA key without parameters is returned with
+    ``parameters`` None; the caller supplies the inherited ones (RFC 5280 section 6.1.4(e)).
     """
-    algorithm, key_octets = split_spki(spki)
-    oid, parameters = algorithm.oid, algorithm.parameters
+    try:
+        info = asn1core.keys.parse_spki(spki, der=True)
+    except asn1core.Asn1Error as exc:
+        raise MalformedAlgorithm(f"subjectPublicKeyInfo: {exc}") from exc
+    oid, key = info.algorithm.dotted, info.key
 
-    if oid == RSA_ENCRYPTION:
-        if parameters is None or not is_null(parameters):
-            raise MalformedAlgorithm("rsaEncryption parameters MUST be NULL (RFC 3279 s. 2.3.1)")
-        rsa_node = _decode_one(key_octets, "RSAPublicKey")
-        if rsa_node.tag != _SEQUENCE or len(rsa_node.children) != 2:
-            raise MalformedAlgorithm("RSAPublicKey is not SEQUENCE { modulus, publicExponent }")
-        return RsaKey(
-            _positive_integer(rsa_node.children[0], "RSA modulus"),
-            _positive_integer(rsa_node.children[1], "RSA publicExponent"),
-        )
-    if oid == ID_EC_PUBLIC_KEY:
-        if parameters is None or parameters.tag != _OID or parameters.payload is None:
-            raise MalformedAlgorithm("id-ecPublicKey needs a namedCurve (RFC 5480 section 2.1.1)")
-        try:
-            curve_oid = ".".join(str(a) for a in asn1core.decode_oid(parameters.payload))
-        except asn1core.Asn1Error as exc:
-            raise MalformedAlgorithm(f"bad namedCurve: {exc}") from exc
+    if isinstance(key, asn1core.keys.RsaPublicKey):
+        if oid != RSA_ENCRYPTION:
+            raise SignatureUnsupported(f"public key algorithm {oid} is not one pkix verifies with")
+        return RsaKey(key.modulus, key.public_exponent)
+    if isinstance(key, asn1core.keys.EcPublicKey):
+        curve_oid = ".".join(map(str, key.curve))
         curve = _CURVES.get(curve_oid)
         if curve is None:
             raise SignatureUnsupported(f"elliptic curve {curve_oid} is not P-256, P-384 or P-521")
-        width = _CURVE_BYTES[curve]
-        if not key_octets or key_octets[0] not in (0x02, 0x03, 0x04):
-            raise MalformedAlgorithm(
-                "ECPoint first octet is not 0x02, 0x03 or 0x04 (RFC 5480 s. 2.2)"
-            )
-        if key_octets[0] != 0x04:
+        if key.compressed:
             raise SignatureUnsupported("compressed EC public keys are not decompressed yet")
-        if len(key_octets) != 1 + 2 * width:
-            raise MalformedAlgorithm(f"an uncompressed {curve} point is {1 + 2 * width} octets")
+        width = _CURVE_BYTES[curve]
         return EcKey(
             curve,
-            int.from_bytes(key_octets[1 : 1 + width], "big"),
-            int.from_bytes(key_octets[1 + width :], "big"),
+            int.from_bytes(key.point[1 : 1 + width], "big"),
+            int.from_bytes(key.point[1 + width :], "big"),
         )
-    if oid == ID_ED25519:
-        if parameters is not None:
-            raise MalformedAlgorithm("Ed25519 parameters MUST be absent (RFC 8410 section 3)")
-        if len(key_octets) != 32:
-            raise MalformedAlgorithm("an Ed25519 public key is 32 octets (RFC 8032 section 5.1.5)")
-        return Ed25519Key(key_octets)
+    if isinstance(key, asn1core.keys.OkpPublicKey) and oid == ID_ED25519:
+        return Ed25519Key(key.key)
+    if isinstance(key, asn1core.keys.DsaPublicKey):
+        return DsaKey(key.y, key.parameters)
     raise SignatureUnsupported(f"public key algorithm {oid} is not one pkix verifies with")
+
+
+def dsa_parameters_of(spki: bytes) -> asn1core.keys.DsaParameters | None:
+    """The Dss-Parms an SPKI carries, or None (absent, or not a DSA key, or unreadable).
+
+    This is the "non-null parameters" test of RFC 5280 section 6.1.4(e) for the one algorithm
+    pkix verifies whose parameters are inherited.
+    """
+    try:
+        key = asn1core.keys.parse_spki(spki, der=True).key
+    except asn1core.Asn1Error:
+        return None
+    return key.parameters if isinstance(key, asn1core.keys.DsaPublicKey) else None
+
+
+def key_algorithm_of(spki: bytes) -> str | None:
+    """The SPKI algorithm OID, dotted, or None when the SPKI is unreadable."""
+    try:
+        node, _ = asn1core.decode(spki, der=True)
+        return asn1core.keys.parse_algorithm_identifier(node.children[0]).dotted
+    except (asn1core.Asn1Error, IndexError):
+        return None
+
+
+def decode_dss_signature(signature: bytes) -> tuple[int, int] | None:
+    """Dss-Sig-Value (RFC 3279 section 2.2.2), the same ``SEQUENCE { r, s }`` as ECDSA's."""
+    return decode_ecdsa_signature(signature)
 
 
 def decode_ecdsa_signature(signature: bytes) -> tuple[int, int] | None:

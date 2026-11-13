@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 import asn1core
+import asn1core.keys
 import sigwire.verify
 
 from . import _algorithms as alg
@@ -167,11 +168,14 @@ def check_signature_with_spki(
     spki: bytes,
     *,
     policy: sigwire.verify.Policy = sigwire.verify.DEFAULT,
+    parameters: asn1core.keys.DsaParameters | None = None,
 ) -> SignatureResult:
     """`check_signature` for an issuer given as a stored SubjectPublicKeyInfo.
 
     RFC 5280 section 6.1.1(d) lets a trust anchor be a name and a key rather than a certificate,
     and section 6.1.3 step (a)(1) only ever needs the key, so a trust anchor verifies through here.
+    `parameters` is working_public_key_parameters (section 6.1.4(e)): used only when `spki` is a
+    DSA key that omits its own.
     """
     certificate = _certificate(cert, "cert")
     return check_signed_data(
@@ -182,6 +186,7 @@ def check_signature_with_spki(
         spki,
         policy=policy,
         what="certificate",
+        parameters=parameters,
     )
 
 
@@ -194,11 +199,19 @@ def check_signed_data(
     *,
     policy: sigwire.verify.Policy = sigwire.verify.DEFAULT,
     what: str = "certificate",
+    parameters: asn1core.keys.DsaParameters | None = None,
 ) -> SignatureResult:
     """The signature check shared by certificates (RFC 5280 section 4.1.1) and CRLs (section 5.1.1).
 
     Both are `SEQUENCE { tbs, signatureAlgorithm, signatureValue }` where the algorithm repeats the
     one inside the signed part, and both say the two "MUST contain the same algorithm identifier".
+
+    DSA (RFC 3279 section 2.2.2, RFC 5758 section 3.1) is verified by `sigwire.verify.dsa`, which
+    `sigwire.verify.DEFAULT` refuses (`SignaturePolicyRefused`) and `sigwire.verify.LEGACY`
+    admits, flagged deprecated (PORTFOLIO.md section 9 item 15). A DSA key that omits its
+    parameters takes `parameters`, the inherited working_public_key_parameters of RFC 5280
+    section 6.1.4(e); with none, it cannot be checked and is `MalformedAlgorithm`, as RFC 3279
+    section 2.3.2 says a client "MUST reject" a key whose parameters are not available.
     """
     # RFC 5280 section 4.1.1.2: the outer field "MUST contain the same algorithm identifier as the
     # signature field in the sequence tbsCertificate". Byte equality is the strict reading; a CA
@@ -210,6 +223,13 @@ def check_signed_data(
         )
     scheme = alg.decode_signature_algorithm(outer_algorithm)
     key = alg.decode_public_key(spki)
+    if isinstance(key, alg.DsaKey) and key.parameters is None:
+        if parameters is None:
+            raise MalformedAlgorithm(
+                "the DSA key omits its parameters and none are inherited "
+                "(RFC 3279 section 2.3.2, RFC 5280 section 6.1.4(e))"
+            )
+        key = alg.DsaKey(key.y, parameters)
 
     try:
         valid, description = _verify(scheme, key, signed, signature, policy)
@@ -241,6 +261,7 @@ _POLICY_NAMES = {
     alg.RSA_PSS: sigwire.verify.policy.RSA_PSS,
     alg.ECDSA: sigwire.verify.policy.ECDSA,
     alg.ED25519: sigwire.verify.policy.ED25519,
+    alg.DSA: sigwire.verify.policy.DSA,
 }
 
 
@@ -301,6 +322,31 @@ def _verify(
                 policy=policy,
             ),
             key.curve,
+        )
+    if scheme.scheme == alg.DSA:
+        if not isinstance(key, alg.DsaKey) or key.parameters is None:
+            raise SignatureInvalid("dsa signature but the issuer key is not a DSA key")
+        if scheme.hash_name is None:  # pragma: no cover - every DSA identifier names its hash
+            raise MalformedAlgorithm("dsa signature algorithm names no hash")
+        domain = key.parameters
+        description = f"DSA-{domain.p.bit_length()}/{domain.q.bit_length()}"
+        pair = alg.decode_dss_signature(signature)
+        if pair is None:
+            return False, description
+        digest = sigwire.verify.hashes.lookup(scheme.hash_name).digest(message)
+        return (
+            sigwire.verify.dsa.verify(
+                domain.p,
+                domain.q,
+                domain.g,
+                key.y,
+                digest,
+                pair[0],
+                pair[1],
+                hash_name=scheme.hash_name,
+                policy=policy,
+            ),
+            description,
         )
     if not isinstance(key, alg.Ed25519Key):
         raise SignatureInvalid("ed25519 signature but the issuer key is not Ed25519")

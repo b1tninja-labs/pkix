@@ -37,10 +37,10 @@ RFC 9598 and RFC 9549, which replace them. Neither obsolete RFC is a source for 
 | RFC 9618 | RFC 5280 | 0 (1 on file) | sections 5.1 to 5.6 replace the policy tree of sections 6.1 to 6.1.6 with a policy graph, because the tree grows exponentially: row `policy.graph`, and `policy.resolve()` implements the graph and not the 5280 text. Section 6 lists fallback mitigations for implementations that keep the tree |
 | RFC 9925 | RFC 5280 | 0 | section 4: id-alg-unsigned (1.3.6.1.5.5.7.6.36) MUST be rejected whenever a signature is verified: row `validity.unsigned_certificate` |
 | RFC 10007 | RFC 5280 | 0 | section 4 amends step (f) of section 6.3.3: when the CRL issuer's certificate is v3 the keyUsage extension must be present and carry cRLSign (v1 and v2 are exempt): row `revocation.crl_issuer_key_usage` |
-| RFC 3279 | updated by RFC 4055, 4491, 5480, 5758, 8692 | 5 | rsaEncryption and RSAPublicKey (section 2.3.1), ecdsa-with-SHA1 and Ecdsa-Sig-Value (section 2.2.3) |
+| RFC 3279 | updated by RFC 4055, 4491, 5480, 5758, 8692 | 5 | rsaEncryption and RSAPublicKey (section 2.3.1), ecdsa-with-SHA1 and Ecdsa-Sig-Value (section 2.2.3), id-dsa-with-sha1 and Dss-Sig-Value (section 2.2.2), id-dsa keys, Dss-Parms and their inheritance from the issuer (section 2.3.2; read through `asn1core.keys`); none of the 5 verified (or 2 held) errata is on 2.2.2 or 2.3.2 |
 | RFC 4055 | RFC 3279, updated by RFC 5756 | 2: 1468 and 1676, both editorial | sha-2 PKCS #1 v1.5 identifiers (section 5), RSASSA-PSS parameters (section 3.1) |
 | RFC 5480 | RFC 3279, updated by RFC 8813 | 2: 6670 (keyTransport is keyEncipherment), 8026 (sect163r2) | EC keys: namedCurve parameters, ECPoint forms (sections 2.1.1, 2.2), key usage (section 3 with RFC 8813) |
-| RFC 5758 | RFC 3279 | 0 (1 on file) | ecdsa-with-SHA2 identifiers, parameters MUST be omitted (section 3.2), hash identifiers (section 2) |
+| RFC 5758 | RFC 3279 | 0 (1 on file) | ecdsa-with-SHA2 identifiers, parameters MUST be omitted (section 3.2), hash identifiers (section 2), id-dsa-with-sha224 and id-dsa-with-sha256 (section 3.1) |
 | RFC 8017 | obsoletes RFC 3447 | 5: 5111, **5154**, 5235, 5577, 7405 | RSASSA-PKCS1-v1_5 and RSASSA-PSS verification (sections 8.1.2, 8.2.2, 9.1.2, 9.2) as run by `sigwire[verify]`. Erratum 5154: appendix A.2.4 labels `sha224WithRSAEncryption` as SHA-256; it is SHA-224, `{ pkcs-1 14 }` (RFC 4055 section 5 agrees) |
 | RFC 8032 | none | 6: 5519, 5930, 5968, 6348, 6851, 8197 | Ed25519 verification as run by `sigwire[verify]`. 5519 and 5968 settle the range of S (0 <= S < L); 5930 is the missing `raise` in the section 6 `verify()` |
 | RFC 8410 | updated by RFC 9295 | 4: 6263, 6738, 7384, 8297 | id-Ed25519 (1.3.101.112) and id-Ed448 (1.3.101.113), parameters MUST be absent (sections 3, 6); 7384 notes the sa-Ed448 and pk-Ed448 definitions missing from section 9 |
@@ -58,8 +58,16 @@ Certification Path Validation", NIST CSRC (`https://csrc.nist.gov/projects/pki-t
 document `PKITS.pdf`, 5,027,216 octets, sha256
 `506913f4b727704ee1b52b17aa472dc6fbcf01e41e7ad88ba505f29c1a74d9ea`; both read 2026-11-13. Written against
 RFC 3280 (which RFC 5280 obsoletes) and X.509; it predates RFC 9549 and RFC 9618. Terms not established,
-so the corpus lives in a cache (`tools/fetch_pkits.py`) and not in the tree. Result on 2026-11-13:
-247 cases, 178 pass, 69 not applicable, 0 fail (`tests/test_pkits.py`).
+so the corpus lives in a cache (`tools/fetch_pkits.py`) and not in the tree. Result on 2026-11-13,
+first run: 247 cases, 178 pass, 69 not applicable, 0 fail. Result on 2026-11-13 after the
+revocation rows (issuing distribution points, indirect CRLs, separate CRL signing keys, delta
+CRLs) and DSA under `sigwire.verify.LEGACY`: **247 pass, 0 not applicable, 0 fail**
+(`tests/test_pkits.py::test_pkits_counts`).
+
+RFC 5280 sections read in full for the CRL algorithm (2026-11-13): 4.2.1.13, 5.2.3, 5.2.4, 5.2.5,
+5.3.3, 6.3.3, with RFC 10007 section 4's amendment of step (f). Errata on those sections: none
+verified; 3674 (held, editorial) renames "distribution field" to "distributionPoint field" in
+6.3.3(b)(2)(i); 1774 (rejected) on the step (l) loop; 7164 (rejected) on 5.2.5.
 
 Signature arithmetic is `sigwire[verify]`'s, and the primary sources for it beyond the RFC series (FIPS 186-5,
 SP 800-186) are named in sigwire[verify]'s own `docs/rfc-map.md`, not copied here.

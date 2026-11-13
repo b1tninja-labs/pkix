@@ -5,10 +5,13 @@
      the badges stay commented out until the tag exists.
 -->
 
-**Pre-alpha, partly implemented.** Trust anchors, candidate path discovery, the validity period and
-certificate signatures (RSA PKCS #1 v1.5 and PSS, ECDSA, Ed25519) are implemented and pinned by tests.
-Name constraints, policy, revocation and `validate()` are not: those functions raise
-`NotImplementedError`, and the test suite records that rather than hiding it. Read
+**Pre-alpha, partly implemented.** Trust anchors, candidate path discovery, the validity period,
+certificate signatures (RSA PKCS #1 v1.5 and PSS, ECDSA, Ed25519, and DSA under the `LEGACY`
+signature policy only), name constraints, policy (RFC 9618), the path walk with `validate()`, and
+CRL revocation checking per RFC 5280 section 6.3.3 (issuing distribution points, indirect CRLs,
+separate CRL signing keys, delta CRLs) are implemented and pinned by tests; NIST PKITS 1.0.1 gives
+247 pass, 0 not applicable, 0 fail (2026-11-13). `revocation.status_of()`, `store.remember()` and the CAB/CTL rows still
+raise `NotImplementedError`, and the test suite records that rather than hiding it. Read
 [ROADMAP.md](ROADMAP.md) for exactly which rows are done before depending on any of it.
 
 pkix -- RFC 5280 path validation, the part Python never had

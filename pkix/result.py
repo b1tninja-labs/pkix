@@ -25,8 +25,10 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 import asn1core
+import asn1core.keys
 import sigwire.verify
 
+from . import _algorithms as alg
 from . import validity
 from .anchors import TrustAnchor
 from .chain import candidates
@@ -156,6 +158,9 @@ class PathResult:
     revocation_checked: bool
     #: The target's subjectPublicKeyInfo, the working_public_key of section 6.1.5(c), on success.
     working_public_key: bytes | None
+    #: working_public_key_parameters of section 6.1.5(d) for a DSA key, inherited when the
+    #: target's own SPKI omits them; None for every other algorithm.
+    working_public_key_parameters: asn1core.keys.DsaParameters | None = None
 
     @property
     def valid(self) -> bool:
@@ -194,12 +199,17 @@ class _Walk:
 
 
 def _signature(
-    walk: _Walk, i: int, certificate: asn1core.Certificate, spki: bytes, inputs: PathInputs
+    walk: _Walk,
+    i: int,
+    certificate: asn1core.Certificate,
+    spki: bytes,
+    inputs: PathInputs,
+    parameters: asn1core.keys.DsaParameters | None,
 ) -> None:
     step = "6.1.3(a)(1) signature"
     try:
         found = validity.check_signature_with_spki(
-            certificate, spki, policy=inputs.signature_policy
+            certificate, spki, policy=inputs.signature_policy, parameters=parameters
         )
     except UnsignedCertificate as exc:
         raise walk.fail(
@@ -304,6 +314,10 @@ def path_walk(
     working_issuer: asn1core.Certificate | None = (
         None if anchor.certificate is None else asn1core.parse_certificate(anchor.certificate)
     )
+    # (d) to (f) of section 6.1.2: working_public_key_algorithm and _parameters. Only DSA among the
+    # algorithms pkix verifies inherits parameters, so only Dss-Parms are carried.
+    working_algorithm = alg.key_algorithm_of(working_spki)
+    working_parameters = alg.dsa_parameters_of(working_spki)
     constraints = inputs.initial_name_constraints
     max_path_length = n  # (k)
     revocation_checked = True
@@ -311,13 +325,20 @@ def path_walk(
     try:
         for i, certificate in enumerate(reversed(certificates), start=1):
             # ---- 6.1.3 basic certificate processing
-            _signature(walk, i, certificate, working_spki, inputs)
+            _signature(walk, i, certificate, working_spki, inputs, working_parameters)
             window = validity.check_validity(certificate, at)
             if not window.ok:
                 raise walk.fail(i, "6.1.3(a)(2) validity", window.reason)
             walk.ok(i, "6.1.3(a)(2) validity")
             request = RevocationRequest(
-                certificate, working_issuer_name, working_spki, working_issuer, at, i
+                certificate,
+                working_issuer_name,
+                working_spki,
+                working_issuer,
+                at,
+                i,
+                anchor=anchor,
+                issuer_parameters=working_parameters,
             )
             revocation_checked &= _revocation(walk, i, request, inputs)
             if not asn1core.names_equal(certificate.issuer, working_issuer_name):
@@ -341,6 +362,15 @@ def path_walk(
             working_issuer_name = certificate.subject
             working_spki = certificate.subject_public_key_info
             working_issuer = certificate
+            # (e) and (f): non-null parameters replace working_public_key_parameters; omitted or
+            # NULL ones keep them only while the algorithm stays the same.
+            own_parameters = alg.dsa_parameters_of(working_spki)
+            algorithm = alg.key_algorithm_of(working_spki)
+            if own_parameters is not None:
+                working_parameters = own_parameters
+            elif algorithm != working_algorithm:
+                working_parameters = None
+            working_algorithm = algorithm
             extension = parse_name_constraints(certificate.extension(NAME_CONSTRAINTS))
             if extension is not None:
                 constraints = constraints.restrict(extension)
@@ -370,12 +400,18 @@ def path_walk(
     except (MalformedExtension, MalformedCertificate, MalformedAlgorithm) as exc:
         walk.steps.append(Step(0, "extension syntax", "failed", str(exc)))
         return PathResult("invalid", tuple(walk.steps), outcome, revocation_checked, None)
+    # Section 6.1.5(c) to (e): the target's key, with its parameters or the inherited ones.
+    target_spki = certificates[0].subject_public_key_info
+    target_parameters = alg.dsa_parameters_of(target_spki)
+    if target_parameters is None and alg.key_algorithm_of(target_spki) == working_algorithm:
+        target_parameters = working_parameters
     return PathResult(
         "valid",
         tuple(walk.steps),
         outcome,
         revocation_checked,
-        certificates[0].subject_public_key_info,
+        target_spki,
+        target_parameters,
     )
 
 

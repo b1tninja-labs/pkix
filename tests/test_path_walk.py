@@ -194,17 +194,21 @@ def test_a_revoked_leaf_fails_and_an_absent_crl_fails_closed():
     assert result.failure.detail.startswith("undetermined")
 
 
-def test_a_crl_feature_pkix_does_not_process_is_unsupported_not_good():
-    idp = x509.IssuingDistributionPoint(
-        full_name=None,
-        relative_name=None,
-        only_contains_user_certs=True,
-        only_contains_ca_certs=False,
-        only_some_reasons=None,
-        indirect_crl=False,
-        only_contains_attribute_certs=False,
+def test_a_crl_pkix_cannot_verify_is_unsupported_not_good():
+    """An issuing distribution point used to be the example here; it is processed now (row
+    `revocation.idp`). What stays unsupported is evidence pkix cannot check: a CRL signed with an
+    algorithm it does not verify (Ed448, row `algorithms.ed448`)."""
+    from cryptography.hazmat.primitives.asymmetric import ed448
+
+    unverifiable = (
+        x509.CertificateRevocationListBuilder()
+        .issuer_name(dn("CA"))
+        .last_update(datetime.datetime(2025, 1, 1))
+        .next_update(datetime.datetime(2026, 1, 1))
+        .sign(ed448.Ed448PrivateKey.generate(), None)
+        .public_bytes(Encoding.DER)
     )
-    inputs = PathInputs(revocation=CrlChecker([_crl("Root"), _crl("CA", extensions=[(idp, True)])]))
+    inputs = PathInputs(revocation=CrlChecker([_crl("Root"), unverifiable]))
     result = path_walk(chain(), ANCHOR, AT, inputs)
     assert result.status == "unsupported"
     assert failed_step(result) == "6.1.3(a)(3) revocation"
